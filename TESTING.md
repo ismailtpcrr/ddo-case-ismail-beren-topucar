@@ -131,7 +131,7 @@ Her test paketi kendi konteynerini açar, migrasyonları uygular ve iş bitince 
 
 | İş | Ne yapar | Yerelde |
 |---|---|---|
-| `backend` | `go build`, `go test -race` (testcontainers; runner'da Docker hazır), golangci-lint v2.15.0, govulncheck | `cd backend && go build ./... && go test -race ./...`; `make lint`; `cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...` (beklenen: "No vulnerabilities found") |
+| `backend` | `go build`, `go test -race` (testcontainers; runner'da Docker hazır), golangci-lint v2.15.0, govulncheck | `cd backend && go build ./... && go test -race ./...`; `make lint`; `cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...` (beklenen: "No vulnerabilities found") |
 | `frontend` | `npm ci`, oxlint, `tsc` + Vite derlemesi | `cd frontend && npm ci && npm run lint && npm run build` |
 | `images` | Backend ve frontend Docker imajlarının derlenmesi (push yok) | `docker compose build` |
 

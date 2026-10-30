@@ -428,3 +428,8 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
     işlemeden bağlantıyı keser, işleme ya hemen olur ya hiç olmaz).
   - Belirsiz kalan transferler (deneme sınırı aşıldı) elle çözülene kadar para ayrılmış durumdadır; operasyon ekranı K2'de.
   - Dört göz onayı ve risk incelemesi (PENDING_APPROVAL/UNDER_REVIEW) F2/J1'de aynı makineye bağlanır.
+
+*K-18 eki (L1 sonrası düzeltme):* GitHub'daki ilk üç CI çalışması `govulncheck@v1.1.4` adımında kırmızı çıktı: runner'daki Go 1.27.0
+ile eski `x/tools` içindeki SSA oluşturucusu `panic: unexpected expr: *ast.KeyValueExpr` verdi (testler ve lint geçmişti).
+Yerelde Go 1.27.3 olduğu için görünmemişti. `govulncheck@v1.9.0`'a yükseltildi ve yerelde temiz çalıştığı doğrulandı.
+Ders: CI'da kullanılan araç sürümleri, `go.mod`'daki Go sürümüyle birlikte sınanmalı.
