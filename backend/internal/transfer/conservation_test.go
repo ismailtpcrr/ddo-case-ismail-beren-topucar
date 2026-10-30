@@ -146,7 +146,7 @@ func TestPropertyRandomTransferSequencesConserveMoney(t *testing.T) {
 		model := make([]int64, n) // beklenen bakiyeler
 		for i := range accs {
 			open := rapid.Int64Range(0, 100_000).Draw(rt, "açılış")
-			_, accs[i] = f.owned(t, money.EUR, open)
+			_, accs[i] = f.owned(t, money.TRY, open)
 			model[i] = open
 		}
 		var sum int64
@@ -159,7 +159,7 @@ func TestPropertyRandomTransferSequencesConserveMoney(t *testing.T) {
 			to := rapid.IntRange(0, n-1).Filter(func(v int) bool { return v != from }).Draw(rt, "alıcı")
 			amount := rapid.Int64Range(1, 150_000).Draw(rt, "tutar")
 			tr, _, err := f.transfer.Create(ctx, f.ops, uuid.NewString(), transfer.CreateInput{
-				FromAccountID: accs[from].ID, ToIBAN: *accs[to].IBAN, Currency: money.EUR, AmountMinor: amount})
+				FromAccountID: accs[from].ID, ToIBAN: *accs[to].IBAN, Currency: money.TRY, AmountMinor: amount})
 			if err != nil {
 				rt.Fatalf("beklenmeyen hata: %v", err)
 			}

@@ -350,7 +350,10 @@ paths:
         değilse dış bankaya gider (`type`: EFT ya da FAST, varsayılan FAST): para önce takas hesabına ayrılır (`RESERVED`),
         gönderim worker'da arka planda yapılır ve sonuç `GET /transfers/{id}` ile izlenir
         (`RESERVED → SENT → COMPLETED`; belirsizse `UNKNOWN`, banka reddederse `FAILED → REVERSED`: ters kayıtla para müşteriye döner).
-        Farklı para birimi `422 CURRENCY_MISMATCH` döner (çok para birimi ayrı adımda).
+        `currency`, gönderen hesabın para biriminde olmalı (aksi `422 CURRENCY_MISMATCH`). Alıcı hesap başka para biriminde
+        ise (banka içi) güncel kurla çevrilir: tek defter kaydı, her para biriminde borç = alacak; alıcının aldığı tutar
+        (`to_amount_minor`) ve kullanılan kur (`fx_rate`) kayda yazılır. Kur yoksa `422 FX_RATE_UNAVAILABLE`.
+        Dört göz eşiği, yabancı para biriminde güncel kurla **TL karşılığına** göre uygulanır.
         **Dört göz:** tutar 10.000,00 TL'nin **üzerindeyse** (tam 10.000,00 değil) transfer `PENDING_APPROVAL` olur (`202`); para
         bloke edilmez ve defter kaydı yazılmaz. `transfers:approve` sahibi (operasyon, uyum) ve **isteyenden farklı** bir kişi
         `/approve` ile yürütür (`403 FOUR_EYES_VIOLATION` isteyen onaylarsa). Yetersiz bakiye yürütme anında kontrol edilir.
@@ -722,6 +725,56 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/fx/rates:
+    get:
+      summary: Kurlar (zaman geçerlilikli; en yeni geçerlilik önce)
+      description: |
+        Giriş yapmış her rol okur (kurlar genel bilgidir). Kur, yabancı para biriminin TL karşılığıdır (1 USD = rate TRY);
+        iki yabancı para birimi arasındaki çapraz kur TL üzerinden hesaplanır. `as_of` verilirse o anda geçerli olan ve
+        öncesindeki kurlar (en yenisi o anın kuru). Kurlar eklemeli-yalnızdır: yeni kur eskisini değiştirmez.
+      tags: [Kur]
+      parameters:
+        - { name: base, in: query, schema: { type: string, enum: [USD, EUR] } }
+        - { name: as_of, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        "200":
+          description: Kurlar
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/FxRate" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: Kur ekle
+      description: |
+        İzin: `fx:write` (operasyon uzmanı). `rate` JSON'da **metin** olmalı (`"41.2500"`; sayı kabul edilmez: kayan nokta yasak),
+        pozitif, en fazla 8 ondalık basamak. `valid_from` verilmezse şimdi; gelecekteki kur o zamana kadar geçerli olmaz.
+        Aynı para birimi ve geçerlilik zamanında ikinci kur `409 RATE_EXISTS`. Denetim kaydına `fx.rate_create` yazılır.
+      tags: [Kur]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [base, rate]
+              additionalProperties: false
+              properties:
+                base: { type: string, enum: [USD, EUR] }
+                quote: { type: string, enum: [TRY] }
+                rate: { type: string, example: "41.2500" }
+                valid_from: { type: string, format: date-time }
+      responses:
+        "201": { description: Eklendi, content: { application/json: { schema: { $ref: "#/components/schemas/FxRate" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Aynı geçerlilik zamanında kur var (`RATE_EXISTS`), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
   /health:
     get:
       summary: Sağlık durumu (veritabanı bağlantısı dahil)
@@ -902,6 +955,9 @@ components:
         currency: { type: string, enum: [TRY, USD, EUR] }
         description: { type: string }
         requested_by: { type: string, format: uuid }
+        to_amount_minor: { type: integer, format: int64, nullable: true, description: "Çok para birimli transferde alıcının aldığı tutar" }
+        to_currency: { type: string, enum: [TRY, USD, EUR], nullable: true }
+        fx_rate: { type: string, nullable: true, description: "Kayda yazılan kur: 1 gönderen para birimi = fx_rate alıcı para birimi (ondalık, metin)" }
         journal_entry_id: { type: string, format: uuid, nullable: true, description: Defter kaydı (banka içi) ya da ayırma kaydı (dış) }
         settlement_entry_id: { type: string, format: uuid, nullable: true, description: "Dış transfer: takasın kapanış kaydı" }
         reversal_entry_id: { type: string, format: uuid, nullable: true, description: "Dış transfer başarısızsa ters kayıt" }
@@ -963,6 +1019,17 @@ components:
         refunded_minor: { type: integer, format: int64 }
         final: { type: boolean }
         journal_entry_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+
+    FxRate:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        base: { type: string, enum: [USD, EUR] }
+        quote: { type: string, enum: [TRY] }
+        rate: { type: string, example: "41.125", description: "1 base = rate TRY (ondalık metin)" }
+        valid_from: { type: string, format: date-time }
+        created_by: { type: string, format: uuid, nullable: true }
         created_at: { type: string, format: date-time }
 
     AuditRecord:

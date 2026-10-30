@@ -19,6 +19,7 @@ import (
 	"parakopru/internal/account"
 	"parakopru/internal/card"
 	"parakopru/internal/customer"
+	"parakopru/internal/fx"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
@@ -78,6 +79,10 @@ func TestCustomerAndAccountWritePermissions(t *testing.T) {
 		{auth.RoleAuditor, http.MethodPost, "/api/v1/captures/" + uuid.NewString() + "/refunds"},
 		{auth.RoleSystem, http.MethodGet, "/api/v1/cards"},
 		{auth.RoleSystem, http.MethodGet, "/api/v1/accounts/" + uuid.NewString() + "/holds"},
+		// Kur ekleme yalnız operasyon uzmanının (fx:write).
+		{auth.RoleCustomer, http.MethodPost, "/api/v1/fx/rates"},
+		{auth.RoleRiskAnalyst, http.MethodPost, "/api/v1/fx/rates"},
+		{auth.RoleAuditor, http.MethodPost, "/api/v1/fx/rates"},
 		// Dört göz onayı yalnız operasyon ve uyum (transfers:approve).
 		{auth.RoleCustomer, http.MethodPost, "/api/v1/transfers/" + uuid.NewString() + "/approve"},
 		{auth.RoleAuditor, http.MethodPost, "/api/v1/transfers/" + uuid.NewString() + "/approve"},
@@ -130,6 +135,7 @@ func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) 
 		Ledger:         ledger.NewHandler(nil),
 		Transfers:      transfer.NewHandler(nil),
 		Cards:          card.NewHandler(nil),
+		FX:             fx.NewHandler(nil),
 	})
 	if extra != nil {
 		extra(h.(chi.Router))

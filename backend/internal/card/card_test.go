@@ -44,6 +44,9 @@ type fixture struct {
 
 var seq atomic.Int64
 
+// nidBase kimlik numaralarının rastgele başlangıcıdır; sayaçla artar, bu yüzden testler arasında çarpışmaz.
+var nidBase = time.Now().UnixNano() % 1e9 * 10
+
 func newFixture(t *testing.T) fixture {
 	t.Helper()
 	env := dbtest.Get(t)
@@ -66,7 +69,7 @@ func newFixture(t *testing.T) fixture {
 // newCard bakiyeli bir hesap ve ona bağlı kart açar.
 func (f fixture) newCard(t *testing.T, cur money.Currency, balance int64) (card.Card, account.Account) {
 	t.Helper()
-	cu, err := f.custs.Create(f.ops, customer.CreateInput{FullName: "Kart Test", NationalID: fmt.Sprintf("6%010d", time.Now().UnixNano()%1e9*10+seq.Add(1)%10)})
+	cu, err := f.custs.Create(f.ops, customer.CreateInput{FullName: "Kart Test", NationalID: fmt.Sprintf("6%010d", nidBase+seq.Add(1))})
 	require.NoError(t, err)
 	a, err := f.accounts.Open(f.ops, account.OpenInput{CustomerID: cu.ID, Kind: account.Checking, Currency: cur})
 	require.NoError(t, err)

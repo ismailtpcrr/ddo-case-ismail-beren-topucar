@@ -536,3 +536,31 @@ Docker imajı zaten `golang:1.27-alpine` (güncel yama) ile derlenir. Yerelde Go
   da gösterilebilir olmalı).
 - **Sonuçlar / ödünleşimler:** Arşiv sınırsız büyür (saklama/temizlik politikası RUNBOOK'ta anlatılır, otomatik silme yok). Betik tek
   düğümlü demo içindir; gerçek ortamda arşiv ayrı bir depolamaya (nesne depolama) gider ve temel yedekler zamanlanır.
+
+## K-25 Kur: TL'ye göre kotasyon, ondalık metin, kayda yazılan kur, tek dengeli defter kaydı
+
+*(PLAN.md §5.5; PLAN §14 madde 6; G1 adımı. K-23'teki "döviz için muhafazakâr eşik" geçici kuralının yerine geçer.)*
+
+- **Bağlam:** proje.md F-5: kur yönetimi ve çok para birimli işlem; §6-§7: kayan nokta yasak. PLAN §5.5: zaman geçerlilikli kurlar,
+  tek defter kaydı (borç gönderen / alacak FX_POSITION + borç FX_POSITION / alacak alıcı), kullanılan kur kayda yazılır, banker's
+  rounding, dört göz eşiği güncel kurla TL karşılığına göre.
+- **Karar:**
+  - **Kur yalnız yabancı para birimi → TL** (`fx_rates.base ∈ {USD, EUR}`, `quote = TRY`; 1 USD = rate TRY). İki yabancı para birimi
+    arasındaki çapraz kur `rate(A)/rate(B)` ile TL üzerinden bulunur: iki kur birbiriyle çelişemez ve üç para birimi için
+    tek kur tablosu yeter.
+  - **Kur eklemeli-yalnızdır** (trigger + yetki geri alma): yeni kur eskisini değiştirmez; geçerliliği `valid_from`; şimdiki kur
+    `valid_from ≤ şimdi` olanların en yenisi, `as_of` ile geçmiş sorgulanır. Aynı geçerlilikte ikinci kur `409`.
+  - **Kur API'de ve veritabanında ondalık metindir** (`numeric(18,8)`, JSON'da `"41.2500"`; sayı olarak gelirse 400): JSON sayısı çoğu
+    istemcide kayan noktaya çevrilir. Dönüşüm `shopspring/decimal` ile (çapraz kur 12 basamak), sonuç banker's rounding ile kuruşa.
+  - **Kullanılan kur kayda yazılır** (`transfers.fx_rate`, `to_amount_minor`, `to_currency`) ve kayıt açıklamasına da: kur sonra
+    değişse bile transferin tutarı açıklanabilir ve değişmez.
+  - **Çok para birimli transfer yalnız banka içidir** ve **tek** defter kaydıdır (4 satır); her para biriminde borç = alacak
+    (`Entry.Validate` ve DB trigger). `currency` her zaman gönderen hesabın para birimidir; alıcı dönüştürülmüş tutarı alır.
+    Dış banka transferi gönderen para biriminde gider (dönüşüm yok). Onaydan sonra yürütmede kur yeniden okunur ve o anki kur kaydedilir.
+  - **Dört göz eşiği** yabancı para biriminde güncel kurla TL karşılığına göre; kur yoksa `422 FX_RATE_UNAVAILABLE`.
+  - **Başlangıç kurları** (USD 41,50; EUR 48,20; geçerlilik 2026-01-01) api açılışında yoksa eklenir; okuma herkese açık, yazma `fx:write` (operasyon).
+- **Değerlendirilen alternatifler:** Her para çifti için ayrı kur satırı (3 para birimi için 6 satır, çelişki riski); kuru `double`/JSON sayısı
+  olarak almak (yasak); kuru satırda güncellemek (geçmiş yok, zaman yolculuğuyla uyumsuz).
+- **Sonuçlar / ödünleşimler:** Kart harcaması ve faiz hâlâ tek para biriminde. Aynı kayıtta iki FX pozisyon hesabı kilitlenir
+  (her para biriminde sıcak satır, K-13'teki sınırlama). Dönüşüm sırasında kuruşa yuvarlama farkı FX pozisyon hesaplarında birikir (banker's rounding
+  yanlılığı dengeler).

@@ -48,8 +48,11 @@ type fixture struct {
 
 var nationalIDSeq atomic.Int64
 
+// nidBase kimlik numaralarının rastgele başlangıcıdır; sayaçla artar, bu yüzden testler arasında çarpışmaz.
+var nidBase = time.Now().UnixNano() % 1e9 * 10
+
 func uniqueNationalID() string {
-	return fmt.Sprintf("3%010d", time.Now().UnixNano()%1e9*10+nationalIDSeq.Add(1)%10)
+	return fmt.Sprintf("3%010d", nidBase+nationalIDSeq.Add(1))
 }
 
 func newFixture(t *testing.T) fixture {

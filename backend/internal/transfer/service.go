@@ -11,6 +11,7 @@ import (
 
 	"parakopru/internal/account"
 	"parakopru/internal/bank"
+	"parakopru/internal/fx"
 	"parakopru/internal/ledger"
 	"parakopru/internal/money"
 	"parakopru/internal/platform/apperr"
@@ -42,6 +43,12 @@ type Accounts interface {
 	InternalAccountID(ctx context.Context, q db.DBTX, kind account.Kind, c money.Currency) (uuid.UUID, error)
 }
 
+// FX transfer modülünün kur modülünden istedikleridir.
+type FX interface {
+	Convert(ctx context.Context, q db.DBTX, amount money.Amount, to money.Currency) (fx.Conversion, error)
+	TRYEquivalentMinor(ctx context.Context, q db.DBTX, amount money.Amount) (int64, error)
+}
+
 // BankClient dış banka istemcisidir (gerçek HTTP istemcisi ve testteki sahte aynı arayüzü sağlar).
 type BankClient interface {
 	Send(ctx context.Context, r bank.SendRequest) (bank.Status, error)
@@ -57,11 +64,12 @@ type Service struct {
 	accounts Accounts
 	queue    *jobs.Queue
 	bank     BankClient // api sürecinde nil olabilir: banka çağrılarını yalnız worker yapar
+	fx       FX
 }
 
 // NewService yeni bir Service oluşturur.
-func NewService(tx *db.TxManager, idGen ids.Generator, rec *audit.Recorder, l LedgerPoster, a Accounts, q *jobs.Queue, b BankClient) *Service {
-	return &Service{tx: tx, ids: idGen, audit: rec, ledger: l, accounts: a, queue: q, bank: b}
+func NewService(tx *db.TxManager, idGen ids.Generator, rec *audit.Recorder, l LedgerPoster, a Accounts, q *jobs.Queue, b BankClient, f FX) *Service {
+	return &Service{tx: tx, ids: idGen, audit: rec, ledger: l, accounts: a, queue: q, bank: b, fx: f}
 }
 
 // Create transferi başlatır. Aynı Idempotency-Key ile gelen tekrar istek işlemi yeniden yapmaz, ilk sonucu döndürür
@@ -99,7 +107,11 @@ func (s *Service) create(ctx context.Context, tx db.DBTX, p auth.Principal, in C
 		return Transfer{}, err
 	}
 
-	if s.needsApproval(in.AmountMinor, in.Currency) {
+	needs, err := s.needsApproval(ctx, tx, money.New(in.AmountMinor, in.Currency))
+	if err != nil {
+		return Transfer{}, err
+	}
+	if needs {
 		// Dört göz: para bloke edilmez; yetersiz bakiye yürütme anında (onaydan sonra) kontrol edilir.
 		if err := insertApproval(ctx, tx, s.ids.NewID(), t.ID, p.UserID); err != nil {
 			return Transfer{}, err
@@ -117,11 +129,13 @@ func (s *Service) create(ctx context.Context, tx db.DBTX, p auth.Principal, in C
 	return t, err
 }
 
-// needsApproval tutarın dört göz onayı gerektirip gerektirmediğini söyler: TL karşılığı 10.000,00'ın üzerinde.
-// Döviz için güncel kur kur adımında (G1) bağlanır; o zamana kadar muhafazakâr davranılır: 1 birim döviz ≥ 1 TL
-// sayılır, yani döviz tutarı eşiği aşarsa onay istenir (gerçek TL karşılığı hiçbir zaman daha az değildir).
-func (s *Service) needsApproval(minor int64, _ money.Currency) bool {
-	return minor > ApprovalThresholdMinor
+// needsApproval tutarın dört göz onayı gerektirip gerektirmediğini söyler: TL karşılığı (şimdiki kurla) 10.000,00'ın üzerinde.
+func (s *Service) needsApproval(ctx context.Context, tx db.DBTX, amount money.Amount) (bool, error) {
+	if amount.Currency == money.TRY {
+		return amount.Minor > ApprovalThresholdMinor, nil
+	}
+	tl, err := s.fx.TRYEquivalentMinor(ctx, tx, amount)
+	return tl > ApprovalThresholdMinor, err
 }
 
 // execute transferi yürütür: defter kaydı, durum geçişi ve (dış transferde) gönderim işi. Banka içi tamamlanır;
@@ -129,7 +143,26 @@ func (s *Service) needsApproval(minor int64, _ money.Currency) bool {
 func (s *Service) execute(ctx context.Context, tx db.DBTX, t *Transfer, from account.Account, to *account.Account) error {
 	amt := money.New(t.AmountMinor, t.Currency)
 	var entry ledger.Entry
-	if to != nil { // banka içi: tek kayıtla hemen tamamlanır
+	var conv *fx.Conversion
+	if to != nil && to.Currency != from.Currency { // çok para birimli: tek kayıt, her para biriminde borç = alacak
+		c, err := s.fx.Convert(ctx, tx, amt, to.Currency)
+		if err != nil {
+			return err
+		}
+		fxFrom, err := s.accounts.InternalAccountID(ctx, tx, account.FXPosition, from.Currency)
+		if err != nil {
+			return err
+		}
+		fxTo, err := s.accounts.InternalAccountID(ctx, tx, account.FXPosition, to.Currency)
+		if err != nil {
+			return err
+		}
+		conv = &c
+		entry = ledger.Entry{Kind: KindTransfer, Reference: t.ID.String(),
+			Description: fmt.Sprintf("Havale (kur 1 %s = %s %s): %s → %s", c.From, c.Rate.String(), c.To, from.Name, to.Name),
+			Lines: []ledger.Line{ledger.Debit(from.ID, amt), ledger.Credit(fxFrom, amt),
+				ledger.Debit(fxTo, c.Amount), ledger.Credit(to.ID, c.Amount)}}
+	} else if to != nil { // banka içi, aynı para birimi: tek kayıtla hemen tamamlanır
 		entry = ledger.Entry{Kind: KindTransfer, Reference: t.ID.String(), Description: "Havale: " + from.Name + " → " + to.Name,
 			Lines: []ledger.Line{ledger.Debit(from.ID, amt), ledger.Credit(to.ID, amt)}}
 	} else { // dış banka: para önce takas hesabına ayrılır (RESERVED); banka onaylayınca takas kapanır
@@ -151,6 +184,12 @@ func (s *Service) execute(ctx context.Context, tx db.DBTX, t *Transfer, from acc
 	case err != nil:
 		return err
 	case to != nil:
+		if conv != nil { // kullanılan kur ve alıcının aldığı tutar kayda yazılır (kur sonra değişse de bu transfer etkilenmez)
+			if err := setFX(ctx, tx, t.ID, conv.Amount.Minor, string(conv.To), conv.Rate); err != nil {
+				return err
+			}
+			t.ToAmountMinor, t.ToCurrency, t.FXRate = &conv.Amount.Minor, &conv.To, &conv.Rate
+		}
 		if err := s.move(ctx, tx, t, Completed, &entryID, nil, ""); err != nil {
 			return err
 		}
@@ -194,8 +233,6 @@ func (s *Service) resolve(ctx context.Context, tx db.DBTX, p auth.Principal, in 
 	switch {
 	case dest.ID == from.ID:
 		err = ErrSameAccount
-	case dest.Currency != from.Currency:
-		err = ErrCurrencyMismatch // çok para birimli transfer G1'de
 	case from.Status != "ACTIVE" || dest.Status != "ACTIVE":
 		err = ErrAccountInactive
 	}

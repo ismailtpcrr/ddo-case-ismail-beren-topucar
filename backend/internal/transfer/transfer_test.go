@@ -18,6 +18,7 @@ import (
 
 	"parakopru/internal/account"
 	"parakopru/internal/customer"
+	"parakopru/internal/fx"
 	"parakopru/internal/ledger"
 	"parakopru/internal/money"
 	"parakopru/internal/platform/apperr"
@@ -48,6 +49,9 @@ type fixture struct {
 
 var seq atomic.Int64
 
+// nidBase kimlik numaralarının rastgele başlangıcıdır; sayaçla artar, bu yüzden testler arasında çarpışmaz.
+var nidBase = time.Now().UnixNano() % 1e9 * 10
+
 func newFixture(t *testing.T) fixture {
 	t.Helper()
 	env := dbtest.Get(t)
@@ -60,9 +64,11 @@ func newFixture(t *testing.T) fixture {
 	led := ledger.NewService(txm, ids.V7{}, rec, accs)
 	ops := newUser(t, env, auth.RoleOperations)
 	fb := &fakeBank{}
+	fxs := fx.NewService(txm, ids.V7{}, clock.System{}, rec)
+	require.NoError(t, fxs.EnsureDefaults(t.Context(), time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), map[money.Currency]string{money.USD: "40.0000", money.EUR: "50.0000"}))
 	return fixture{env: env, txm: txm, accounts: accs, ledger: led, cust: cust,
 		bank:     fb,
-		transfer: transfer.NewService(txm, ids.V7{}, rec, led, accs, jobs.NewQueue(ids.V7{}, clock.System{}), fb),
+		transfer: transfer.NewService(txm, ids.V7{}, rec, led, accs, jobs.NewQueue(ids.V7{}, clock.System{}), fb, fxs),
 		ops:      ops, opsCtx: auth.WithPrincipal(t.Context(), ops)}
 }
 
@@ -85,7 +91,7 @@ func (f fixture) owned(t *testing.T, c money.Currency, balance int64) (auth.Prin
 	require.NoError(t, f.txm.WithTx(audit.WithSystemActor(t.Context()), func(ctx context.Context, tx db.DBTX) error {
 		var err error
 		cu, _, err = f.cust.EnsureForUser(ctx, tx, p.UserID, customer.CreateInput{
-			FullName: "Transfer Test", NationalID: fmt.Sprintf("4%010d", time.Now().UnixNano()%1e9*10+seq.Add(1)%10)})
+			FullName: "Transfer Test", NationalID: fmt.Sprintf("4%010d", nidBase+seq.Add(1))})
 		return err
 	}))
 	a, err := f.accounts.Open(f.opsCtx, account.OpenInput{CustomerID: cu.ID, Kind: account.Checking, Currency: c})
@@ -213,7 +219,6 @@ func TestBusinessRules(t *testing.T) {
 	f := newFixture(t)
 	p, from := f.owned(t, money.TRY, 500_00)
 	other, theirs := f.owned(t, money.TRY, 500_00)
-	_, usd := f.owned(t, money.USD, 0)
 	_, to := f.owned(t, money.TRY, 0)
 	eq, err := f.accounts.InternalAccountID(t.Context(), nil, account.Nostro, money.TRY)
 	require.NoError(t, err)
@@ -228,7 +233,6 @@ func TestBusinessRules(t *testing.T) {
 		{"başkasının hesabından", p, in(theirs, to, 1_00), apperr.ErrForbidden},
 		{"iç hesaptan", f.ops, transfer.CreateInput{FromAccountID: eq, ToIBAN: *to.IBAN, AmountMinor: 1, Currency: money.TRY}, transfer.ErrNotInternalAcct},
 		{"para birimi uyumsuz", p, bad(func(c *transfer.CreateInput) { c.Currency = money.USD }), transfer.ErrCurrencyMismatch},
-		{"alıcı başka para biriminde", p, in(from, usd, 1_00), transfer.ErrCurrencyMismatch},
 		{"kendine", p, in(from, from, 1_00), transfer.ErrSameAccount},
 		{"bozuk IBAN", p, bad(func(c *transfer.CreateInput) { c.ToIBAN = "TR000000000000000000000000" }), transfer.ErrInvalidIBAN},
 	}

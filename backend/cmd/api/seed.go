@@ -8,6 +8,7 @@ import (
 	"parakopru/internal/account"
 	"parakopru/internal/card"
 	"parakopru/internal/customer"
+	"parakopru/internal/fx"
 	"parakopru/internal/ledger"
 	"parakopru/internal/money"
 	"parakopru/internal/platform/audit"
@@ -27,9 +28,14 @@ const demoCustomerNationalID = "10000000146"
 // Açılış bakiyeleri de defterden geçer (borç OPENING_EQUITY / alacak müşteri); seed sonrası da her para biriminde
 // borç = alacak ve özet = defterden türetilen bakiye. 20.000 müşterilik toplu veri simülatörün işidir.
 func seedBase(ctx context.Context, log *slog.Logger, txm *db.TxManager, clk clock.Clock, demoPassword string,
-	authSvc *auth.Service, customers *customer.Service, accounts *account.Service, ledgerSvc *ledger.Service, cards *card.Service,
+	authSvc *auth.Service, customers *customer.Service, accounts *account.Service, ledgerSvc *ledger.Service, cards *card.Service, fxSvc *fx.Service,
 ) error {
 	if _, err := authSvc.SeedDemoUsers(ctx, demoPassword); err != nil {
+		return err
+	}
+	// Başlangıç kurları (yoksa): 1 USD / 1 EUR kaç TL. Geçerlilikleri yıl başıdır; sonraki kurlar operasyon uzmanınca eklenir.
+	if err := fxSvc.EnsureDefaults(ctx, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		map[money.Currency]string{money.USD: "41.5000", money.EUR: "48.2000"}); err != nil {
 		return err
 	}
 	if _, err := accounts.EnsureInternalAccounts(audit.WithSystemActor(ctx)); err != nil {

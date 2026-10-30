@@ -23,6 +23,7 @@ import (
 	"parakopru/internal/bank"
 	"parakopru/internal/card"
 	"parakopru/internal/customer"
+	"parakopru/internal/fx"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/clock"
@@ -73,7 +74,7 @@ func run() error {
 	accountSvc := account.NewService(txm, customerSvc, idGen, clk, recorder)
 	ledgerSvc := ledger.NewService(txm, idGen, recorder, accountSvc)
 	transferSvc := transfer.NewService(txm, idGen, recorder, ledgerSvc, accountSvc, jobs.NewQueue(idGen, clk),
-		bank.New(cfg.BankURL, cfg.BankTimeout))
+		bank.New(cfg.BankURL, cfg.BankTimeout), fx.NewService(txm, idGen, clk, recorder))
 
 	cardSvc := card.NewService(txm, idGen, clk, recorder, ledgerSvc, accountSvc)
 

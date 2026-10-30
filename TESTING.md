@@ -35,7 +35,8 @@ bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır.
 | `F-4` | Demo kartıyla provizyon → kısmi çekim → aşırı çekim → final çekim → iade; süre aşımı (3 sn ömürlü provizyon); yetki ve yetersiz bakiye | Her adımda bakiye/bloke/kullanılabilir tam beklenen değerde; final çekimde kalan blok serbest (`CAPTURED`); `422 CAPTURE_EXCEEDS_HOLD`, `409 HOLD_NOT_ACTIVE`, `422 REFUND_EXCEEDS_CAPTURE`; süresi dolan provizyonu worker serbest bırakır (`EXPIRED`); müşteri provizyon açamaz `403`; yetersiz bakiye `422`. Tipik süre 8 sn |
 | `T-3` | Simülatör müşterisinin kartında HTTP üzerinden yarışlar: 60 eşzamanlı provizyon; her provizyonda 3 yarışan çekim; her çekimde 3 yarışan iade | Provizyonlardan tam `⌊kullanılabilir / tutar⌋` kadarı geçer (20); her provizyonda yalnız 1 çekim, her çekimde yalnız 1 iade geçer; bakiye = açılış − çekim + iade, `held` = Σ aktif kalan, kullanılabilir ≥ 0; `/admin/invariants` ok |
 | `T-7` | Geriye tarihli düzeltme (sim hesabın açılış kaydı, `effective_at` = kendi zamanı) ve `as_of`/`known_at`; ikinci ters kayıt; müşteri geçmişe bakmayı dener; dört göz (10.000,00 ve 10.000,01 TL, kendi isteğini onaylama, yetkisiz roller, çift onay, ret); **PITR betiğinin sonucu** | `as_of=E` güncel bilgiyle 0, `known_at=kayıt anı` ile eski bakiye; özgün satır silinmez (düzeltmeden önceki bilgiyle 1, şimdi 2 hareket); `409 ALREADY_REVERSED`; müşteri `403`; 10.000,00 TL onaysız, 10.000,01 TL `PENDING_APPROVAL` → isteyen `403 FOUR_EYES_VIOLATION`, sistem/müşteri `403`, uyum onayı `COMPLETED`, ikinci onay `409`, ret parayı oynatmaz; PITR `PASS`. `make verify` önce `scripts/dr/pitr-demo.sh`'i çalıştırır; T-7 ikisi de geçerse PASS |
-| `F-5` … `F-8`, `T-4` … `T-6` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
+| `F-5` | Kur ekle/oku; çok para birimli transfer (demo TRY → USD); kur değişimi; dört göz eşiği döviz transferinde | Müşteri kur giremez `403`, geçersiz kur `400`; 1.000,00 TL @ 41,125 → **2432 USD sent** (banker's rounding) tek, 4 satırlı, her para biriminde dengeli kayıtla; `fx_rate` ve `to_amount_minor` kayıtta; yeni kur eklenince eski transfer ve `as_of` kuru değişmez; 300 USD (TL karşılığı > 10.000) `PENDING_APPROVAL`, 100 USD değil |
+| `F-6` … `F-8`, `T-4` … `T-6` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
 
 Yerelde (compose dışında) çalıştırmak için:
 
@@ -202,6 +203,17 @@ make pitr-demo          # = sistemi ayağa kaldırır + ./scripts/dr/pitr-demo.s
 
 Son satır `PASS PITR: …`; çıkış kodu 0. Sonuç `.verify/pitr-result.txt` dosyasına da yazılır (`make verify` T-7 için okur). Betik canlı
 veritabanına yalnız geçici `dr_demo` tablosunu ekler ve siler. Arşivin durumu: `docker compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT * FROM pg_stat_archiver"`.
+
+## Kur yönetimi ve çok para birimli transfer (F-5)
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Kurları okuma / ekleme | [requests.http](requests.http) "Kur yönetimi" (müşteri okur, operasyon ekler) | `200` liste (en yeni geçerlilik önce); ekleme `201`; müşteri `403`; `rate` sayı ya da geçersiz metin `400` |
+| Başlangıç kurları | `GET /api/v1/fx/rates` | USD 41,50 ve EUR 48,20 (2026-01-01'den geçerli) |
+| Zaman geçerliliği | `go test -run TestRatesAreTimeValidAndAppendOnly -v ./internal/fx/` | Şimdiki kur = geçerliliği ≤ şimdi olanların en yenisi; gelecekteki kur henüz geçerli değil; `as_of` geçmiş kuru verir; kurlar UPDATE/DELETE/TRUNCATE ile değişmez |
+| Banker's rounding ve çapraz kur | `go test -run 'TestConvertUsesBankersRoundingAndCrossRates|TestPropertyConversionWithinHalfMinorUnit' -v ./internal/fx/` | 1,00 TL @ 40 → 0,025 USD → 2 sent (çifte), 1,50 TL → 4; USD→EUR TL üzerinden; property: sonuç tam değerden ≤ yarım kuruş sapar |
+| Tek ve dengeli kayıt | `go test -run TestCrossCurrencyTransferIsOneBalancedEntry -v ./internal/transfer/` | 4 satır, TRY'de ve USD'de borç = alacak; FX pozisyon hesapları iki para biriminde karşılık tutar; kur sonra değişse de transferin kuru ve tutarı değişmez |
+| TL eşdeğeri eşiği | `go test -run TestApprovalThresholdUsesTRYEquivalent -v ./internal/transfer/` | 200 USD × 50 = tam 10.000,00 TL onaysız, 200,01 USD onay bekler |
 
 ## Dört göz onayı (T-7)
 

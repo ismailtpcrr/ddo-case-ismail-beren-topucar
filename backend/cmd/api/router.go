@@ -10,6 +10,7 @@ import (
 	"parakopru/internal/account"
 	"parakopru/internal/card"
 	"parakopru/internal/customer"
+	"parakopru/internal/fx"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
@@ -35,6 +36,7 @@ type routerDeps struct {
 	Ledger         *ledger.Handler
 	Transfers      *transfer.Handler
 	Cards          *card.Handler
+	FX             *fx.Handler
 }
 
 // newRouter tüm HTTP uçlarını ve ortak middleware zincirini kurar.
@@ -105,6 +107,10 @@ func newRouter(d routerDeps) http.Handler {
 			r.With(auth.Require(auth.PermSystemCallbacks)).Post("/captures/{id}/refunds", d.Cards.Refund)
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/cards", d.Cards.Cards)
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts/{id}/holds", d.Cards.Holds)
+
+			// Kur yönetimi (F-5): kurları herkes okur (genel bilgi), yalnız operasyon uzmanı ekler (fx:write).
+			r.With(auth.Require(auth.PermProfileRead)).Get("/fx/rates", d.FX.List)
+			r.With(auth.Require(auth.PermFXWrite)).Post("/fx/rates", d.FX.Create)
 
 			// Dört göz onayı (10.000 TL üzeri): operasyon ve uyum; isteyen kişi onaylayamaz (serviste ve DB kısıtıyla).
 			r.With(auth.Require(auth.PermTransfersApprove)).Post("/transfers/{id}/approve", d.Transfers.Approve)

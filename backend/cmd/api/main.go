@@ -18,6 +18,7 @@ import (
 	"parakopru/internal/account"
 	"parakopru/internal/card"
 	"parakopru/internal/customer"
+	"parakopru/internal/fx"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
@@ -77,12 +78,13 @@ func run() error {
 	accountSvc := account.NewService(txm, customerSvc, idGen, clk, recorder)
 	ledgerSvc := ledger.NewService(txm, idGen, recorder, accountSvc)
 	// Dış bankaya gönderimi worker yapar; api yalnız işi kuyruğa ekler (outbox) ve banka bildirimlerini işler.
+	fxSvc := fx.NewService(txm, idGen, clk, recorder)
 	cardSvc := card.NewService(txm, idGen, clk, recorder, ledgerSvc, accountSvc)
-	transferSvc := transfer.NewService(txm, idGen, recorder, ledgerSvc, accountSvc, jobs.NewQueue(idGen, clk), nil)
+	transferSvc := transfer.NewService(txm, idGen, recorder, ledgerSvc, accountSvc, jobs.NewQueue(idGen, clk), nil, fxSvc)
 
 	// Temel seed: demo kullanıcılar, iç hesaplar, demo müşteri ve açılış bakiyeleri. Var olana dokunmaz; her açılışta
 	// güvenle çalışır.
-	if err := seedBase(ctx, log, txm, clk, cfg.DemoPassword, authSvc, customerSvc, accountSvc, ledgerSvc, cardSvc); err != nil {
+	if err := seedBase(ctx, log, txm, clk, cfg.DemoPassword, authSvc, customerSvc, accountSvc, ledgerSvc, cardSvc, fxSvc); err != nil {
 		return err
 	}
 
@@ -99,6 +101,7 @@ func run() error {
 		Ledger:         ledger.NewHandler(ledgerSvc),
 		Transfers:      transfer.NewHandler(transferSvc),
 		Cards:          card.NewHandler(cardSvc),
+		FX:             fx.NewHandler(fxSvc),
 	})
 
 	srv := &http.Server{

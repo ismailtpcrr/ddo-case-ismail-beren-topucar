@@ -560,7 +560,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [x] F3 `feat(dr)`: WAL arşivi, `pg_dump`, PITR betiği (`make pitr-demo`; `make verify` de çalıştırır) + verify'a T-7
 
 ### G — Kur (F-5)
-- [ ] G1 `feat(fx)`: zaman geçerlilikli kurlar ve kur yönetimi (operasyon), çok para birimli transfer, TL eşdeğeri eşik + verify'a F-5
+- [x] G1 `feat(fx)`: zaman geçerlilikli kurlar ve kur yönetimi (operasyon), çok para birimli transfer, TL eşdeğeri eşik + verify'a F-5
 
 ### H — Faiz ve gün sonu (T-4, F-6)
 - [ ] H1 `feat(interest)`: oran/stopaj tabloları, gün tabanları, basit/bileşik, kümülatif yuvarlama (saf fonksiyonlar + testler)

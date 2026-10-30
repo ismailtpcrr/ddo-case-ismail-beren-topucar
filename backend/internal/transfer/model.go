@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"parakopru/internal/money"
 	"parakopru/internal/platform/apperr"
@@ -63,22 +64,26 @@ func CanTransition(from, to State) bool {
 
 // Transfer bir transfer kaydıdır.
 type Transfer struct {
-	ID                uuid.UUID      `json:"id"`
-	Type              Type           `json:"type"`
-	State             State          `json:"state"`
-	FromAccountID     uuid.UUID      `json:"from_account_id"`
-	ToAccountID       *uuid.UUID     `json:"to_account_id"`
-	ToIBAN            string         `json:"to_iban"`
-	AmountMinor       int64          `json:"amount_minor"`
-	Currency          money.Currency `json:"currency"`
-	Description       string         `json:"description"`
-	RequestedBy       uuid.UUID      `json:"requested_by"`
-	JournalEntryID    *uuid.UUID     `json:"journal_entry_id"`
-	SettlementEntryID *uuid.UUID     `json:"settlement_entry_id"`
-	ReversalEntryID   *uuid.UUID     `json:"reversal_entry_id"`
-	FailureCode       *string        `json:"failure_code"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
+	ID            uuid.UUID      `json:"id"`
+	Type          Type           `json:"type"`
+	State         State          `json:"state"`
+	FromAccountID uuid.UUID      `json:"from_account_id"`
+	ToAccountID   *uuid.UUID     `json:"to_account_id"`
+	ToIBAN        string         `json:"to_iban"`
+	AmountMinor   int64          `json:"amount_minor"`
+	Currency      money.Currency `json:"currency"`
+	Description   string         `json:"description"`
+	// Çok para birimli (banka içi) transferde alıcının aldığı tutar ve kayda yazılan kur (1 gönderen para birimi = FXRate alıcı para birimi).
+	ToAmountMinor     *int64           `json:"to_amount_minor"`
+	ToCurrency        *money.Currency  `json:"to_currency"`
+	FXRate            *decimal.Decimal `json:"fx_rate"`
+	RequestedBy       uuid.UUID        `json:"requested_by"`
+	JournalEntryID    *uuid.UUID       `json:"journal_entry_id"`
+	SettlementEntryID *uuid.UUID       `json:"settlement_entry_id"`
+	ReversalEntryID   *uuid.UUID       `json:"reversal_entry_id"`
+	FailureCode       *string          `json:"failure_code"`
+	CreatedAt         time.Time        `json:"created_at"`
+	UpdatedAt         time.Time        `json:"updated_at"`
 }
 
 // Event bir durum geçişidir.

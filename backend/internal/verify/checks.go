@@ -36,7 +36,7 @@ func Checks() []Check {
 		{ID: "F-2", Title: "Çift taraflı defter ve bakiye sorguları", Run: checkF2},
 		{ID: "F-3", Title: "Havale/EFT/FAST transferleri", Run: checkF3, Timeout: 3 * time.Minute},
 		{ID: "F-4", Title: "Kart provizyon, çekim, iade", Run: checkF4, Timeout: 3 * time.Minute},
-		{ID: "F-5", Title: "Kur yönetimi ve çok para birimi", PlannedIn: "G1"},
+		{ID: "F-5", Title: "Kur yönetimi ve çok para birimi", Run: checkF5},
 		{ID: "F-6", Title: "Faiz tahakkuku ve vergi kesintisi", PlannedIn: "H2"},
 		{ID: "F-7", Title: "Risk kuralları ve inceleme kuyruğu", PlannedIn: "J2"},
 		{ID: "F-8", Title: "Gün sonu, mutabakat, müşteri ekstresi", PlannedIn: "I3"},

@@ -432,3 +432,32 @@ Content-Type: application/json
 Idempotency-Key: {{$guid}}
 
 {"reason": "Şüpheli işlem"}
+
+# ---------------------------------------------------------------------------
+# Kur yönetimi ve çok para birimli transfer (F-5)
+# ---------------------------------------------------------------------------
+
+### Güncel USD kurları (herkes okur) — en yeni geçerlilik önce
+GET {{baseUrl}}/api/v1/fx/rates?base=USD
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Yeni USD kuru (operasyon) — rate metin; müşteri 403, geçersiz kur 400
+# @name newRate
+POST {{baseUrl}}/api/v1/fx/rates
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+
+{"base": "USD", "rate": "41.2500"}
+
+### Geçmiş kur: as_of anında geçerli kur (eskisi değişmez)
+GET {{baseUrl}}/api/v1/fx/rates?base=USD&as_of={{newRate.response.body.valid_from}}
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Çok para birimli transfer: demo TRY hesabı → demo USD hesabı IBAN'ı (to_amount_minor, fx_rate kayda yazılır)
+# Önce "Demo müşteri kendi hesaplarını görür" isteğiyle USD hesabının IBAN'ını alın.
+POST {{baseUrl}}/api/v1/transfers
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"from_account_id": "{{myAccounts.response.body.$.items[0].id}}", "to_iban": "{{myAccounts.response.body.$.items[1].iban}}", "amount_minor": 100000, "currency": "TRY", "description": "TL → USD"}

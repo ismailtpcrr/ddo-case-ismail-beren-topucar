@@ -7,23 +7,32 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
 
 	"parakopru/internal/platform/db"
 	"parakopru/internal/platform/page"
 )
 
 const columns = `id, type, state, from_account_id, to_account_id, to_iban, amount_minor, currency, description,
-	requested_by, journal_entry_id, settlement_entry_id, reversal_entry_id, failure_code, created_at, updated_at`
+	to_amount_minor, to_currency, fx_rate::text, requested_by, journal_entry_id, settlement_entry_id, reversal_entry_id, failure_code, created_at, updated_at`
 
 func scan(row pgx.Row) (Transfer, error) {
 	var t Transfer
+	var rate *string
 	err := row.Scan(&t.ID, &t.Type, &t.State, &t.FromAccountID, &t.ToAccountID, &t.ToIBAN, &t.AmountMinor, &t.Currency,
-		&t.Description, &t.RequestedBy, &t.JournalEntryID, &t.SettlementEntryID, &t.ReversalEntryID, &t.FailureCode, &t.CreatedAt, &t.UpdatedAt)
+		&t.Description, &t.ToAmountMinor, &t.ToCurrency, &rate, &t.RequestedBy, &t.JournalEntryID, &t.SettlementEntryID, &t.ReversalEntryID, &t.FailureCode, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Transfer{}, ErrNotFound
 	}
 	if err != nil {
 		return Transfer{}, fmt.Errorf("transfer: scan: %w", err)
+	}
+	if rate != nil {
+		d, err := decimal.NewFromString(*rate)
+		if err != nil {
+			return Transfer{}, fmt.Errorf("transfer: bad fx rate %q: %w", *rate, err)
+		}
+		t.FXRate = &d
 	}
 	return t, nil
 }
@@ -163,4 +172,14 @@ func getApproval(ctx context.Context, q db.DBTX, transferID uuid.UUID) (*Approva
 		return nil, fmt.Errorf("transfer: get approval: %w", err)
 	}
 	return &a, nil
+}
+
+// setFX çok para birimli transferde alıcının aldığı tutarı ve kullanılan kuru kayda yazar.
+func setFX(ctx context.Context, q db.DBTX, id uuid.UUID, toAmount int64, toCurrency string, rate decimal.Decimal) error {
+	_, err := q.Exec(ctx, `UPDATE transfers SET to_amount_minor = $2, to_currency = $3, fx_rate = $4::numeric, updated_at = now() WHERE id = $1`,
+		id, toAmount, toCurrency, rate.String())
+	if err != nil {
+		return fmt.Errorf("transfer: set fx: %w", err)
+	}
+	return nil
 }
