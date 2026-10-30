@@ -775,6 +775,46 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: Aynı geçerlilik zamanında kur var (`RATE_EXISTS`), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
 
+  /api/v1/eod/runs:
+    post:
+      summary: Gün sonunu başlat (faiz tahakkuku, süresi dolan provizyonlar)
+      description: |
+        İzin: `eod:run` (operasyon, sistem). Çalıştırma satırını açar ve işi kuyruğa ekler; worker yürütür (`202`). Aynı gün daha önce
+        başlatılmışsa mevcut çalıştırmayı döndürür (`200`; çift tahakkuk yok). İleri tarih `422 FUTURE_BUSINESS_DATE`; daha sonraki bir
+        gün yapılmışken geçmiş gün `409 EOD_OUT_OF_ORDER`. İş partiler halinde ilerler ve çökerse kaldığı yerden devam eder.
+      tags: [Gün sonu]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [business_date]
+              additionalProperties: false
+              properties:
+                business_date: { type: string, format: date }
+      responses:
+        "200": { description: Mevcut çalıştırma, content: { application/json: { schema: { $ref: "#/components/schemas/EodRun" } } } }
+        "202": { description: Başlatıldı, content: { application/json: { schema: { $ref: "#/components/schemas/EodRun" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Sıra dışı geçmiş gün, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "422": { description: İleri tarih, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /api/v1/eod/runs/{date}:
+    get:
+      summary: Gün sonu çalıştırması ve o günün tahakkuk toplamları
+      description: "İzin: `eod:run` ya da `ledger:read`."
+      tags: [Gün sonu]
+      parameters:
+        - { name: date, in: path, required: true, schema: { type: string, format: date } }
+      responses:
+        "200": { description: Çalıştırma, content: { application/json: { schema: { $ref: "#/components/schemas/EodRun" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /health:
     get:
       summary: Sağlık durumu (veritabanı bağlantısı dahil)
@@ -1031,6 +1071,28 @@ components:
         valid_from: { type: string, format: date-time }
         created_by: { type: string, format: uuid, nullable: true }
         created_at: { type: string, format: date-time }
+
+    EodRun:
+      type: object
+      properties:
+        business_date: { type: string, format: date }
+        step: { type: string, enum: [INTEREST, HOLD_EXPIRY, DONE] }
+        status: { type: string, enum: [RUNNING, DONE] }
+        batches: { type: integer }
+        accounts_accrued: { type: integer }
+        attempts: { type: integer, description: "Kaç kez çalıştırıldı (çökme sonrası devam edince artar)" }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+        totals:
+          type: array
+          items:
+            type: object
+            properties:
+              currency: { type: string }
+              accruals: { type: integer }
+              gross_minor: { type: integer, format: int64 }
+              tax_minor: { type: integer, format: int64 }
+              net_minor: { type: integer, format: int64, description: "brüt = net + vergi" }
 
     AuditRecord:
       type: object

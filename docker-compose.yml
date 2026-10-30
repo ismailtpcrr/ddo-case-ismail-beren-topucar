@@ -84,6 +84,10 @@ services:
       DATABASE_URL: postgres://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       LOG_LEVEL: ${LOG_LEVEL:-info}
       BANK_URL: http://simulator:8080
+      # Gün sonu çökme testi: > 0 ise worker bu kadar partiden sonra kendini öldürür (bkz. TESTING.md "Gün sonu").
+      EOD_CRASH_AFTER_BATCHES: ${EOD_CRASH_AFTER_BATCHES:-0}
+      EOD_BATCH_SIZE: ${EOD_BATCH_SIZE:-1000}
+      WORKER_JOB_LEASE: ${WORKER_JOB_LEASE:-2m}
     depends_on:
       api:
         condition: service_healthy

@@ -585,3 +585,28 @@ Docker imajı zaten `golang:1.27-alpine` (güncel yama) ile derlenir. Yerelde Go
   (iki sütunun tutarlı tutulması gerekir, btree_gist uzantısı; tek `valid_from` aynı güvenceyi daha basit verir); stopajı dönem sonunda toplu kesmek
   (günlük kayıtta brüt = net + vergi her gün tutmaz).
 - **Sonuçlar / ödünleşimler:** Oran yönetimi için API yok (şartname istemiyor; oranlar migrasyonla eklenir). Eksi bakiyeye faiz işlemez (0).
+
+## K-27 Gün sonu: partili, kaldığı yerden devam eden, çift tahakkuksuz iş
+
+*(PLAN.md §5.6; PLAN §14 madde 13; H2 adımı.)*
+
+- **Bağlam:** proje.md Görev 4: "Gün sonu job'ı yarıda çökerse kaldığı yerden devam etmeli ve çift tahakkuk yapmamalı."
+- **Karar:**
+  - `POST /eod/runs` yalnız çalıştırma satırını (`eod_runs`) açar ve `eod.run` işini aynı transaction'da kuyruğa ekler (outbox); işi worker
+    yürütür (`202`). Aynı gün tekrar istenirse mevcut çalıştırma döner (`200`). Bugünden ileri tarih `422`; daha sonraki bir gün
+    yapılmışken geçmiş gün `409` (kümülatif durum gün sırasıyla ilerler).
+  - Faiz adımı: oranı > 0 olan aktif müşteri hesapları kimlik sırasıyla, `EOD_BATCH_SIZE` (1.000) hesaplık partilerle; **her parti tek
+    transaction**: tahakkuk satırları + defter kayıtları + `last_account_id` ilerlemesi birlikte commit edilir. Çökmede yarım parti geri
+    alınır, sonraki çalıştırma `last_account_id`'den devam eder. `eod_runs` satırı her partide `FOR UPDATE` kilitlenir (tek çalıştırıcı).
+  - Çift tahakkuk üç katla engellenir: "bu gün tahakkuk etti mi" kontrolü, `UNIQUE (account_id, accrual_date)` ve kümülatif durumun
+    satırda saklanması (bir sonraki gün buradan devam eder).
+  - Anapara = bakiye − bugüne kadar alacaklanan net faiz (basitte faiz anaparaya karışmaz; bileşikte esas'a hassas birikmiş faiz eklenir).
+    Kayıt: borç `INTEREST_EXPENSE` (brüt) / alacak müşteri (net) / alacak `WITHHOLDING_TAX` (vergi); geçerlilik zamanı günün sonu
+    (bugünse kayıt anı: ileri tarihli kayıt yok).
+  - Sonraki adım: süresi dolan kart provizyonları (`card.ExpireDue`), sonra `DONE`. Mutabakat ve müşteri ekstresi adımları mutabakat modülüyle eklenir.
+  - Çökme testi: `EOD_CRASH_AFTER_BATCHES` > 0 ise worker o kadar partiden sonra süreci gerçekten öldürür (`os.Exit`); Docker yeniden
+    başlatır, iş kirası dolunca tekrar alınır.
+- **Değerlendirilen alternatifler:** Tek dev transaction (çökmede her şey baştan, uzun kilit); hesap başına bir kuyruk işi (32.000 iş
+  satırı); API isteğinde senkron çalıştırma (zaman aşımı).
+- **Sonuçlar / ödünleşimler:** Anapara güncel bakiyeden alınır; gün sonu gecikmeli çalıştırılırsa o günün bakiyesi yerine çalıştırma anının
+  bakiyesi kullanılır (bilinen sınırlama; düzeltmesi `as_of` bakiyesi kullanmak). Vadesi geçmiş vadeli hesaplar ayrıca kapatılmaz.

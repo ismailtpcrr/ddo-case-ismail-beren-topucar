@@ -20,6 +20,7 @@ import (
 	"parakopru/internal/card"
 	"parakopru/internal/customer"
 	"parakopru/internal/fx"
+	"parakopru/internal/interest"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
@@ -83,6 +84,10 @@ func TestCustomerAndAccountWritePermissions(t *testing.T) {
 		{auth.RoleCustomer, http.MethodPost, "/api/v1/fx/rates"},
 		{auth.RoleRiskAnalyst, http.MethodPost, "/api/v1/fx/rates"},
 		{auth.RoleAuditor, http.MethodPost, "/api/v1/fx/rates"},
+		// Gün sonu yalnız operasyon ve sistem başlatır.
+		{auth.RoleCustomer, http.MethodPost, "/api/v1/eod/runs"},
+		{auth.RoleAuditor, http.MethodPost, "/api/v1/eod/runs"},
+		{auth.RoleCustomer, http.MethodGet, "/api/v1/eod/runs/2026-10-30"},
 		// Dört göz onayı yalnız operasyon ve uyum (transfers:approve).
 		{auth.RoleCustomer, http.MethodPost, "/api/v1/transfers/" + uuid.NewString() + "/approve"},
 		{auth.RoleAuditor, http.MethodPost, "/api/v1/transfers/" + uuid.NewString() + "/approve"},
@@ -136,6 +141,7 @@ func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) 
 		Transfers:      transfer.NewHandler(nil),
 		Cards:          card.NewHandler(nil),
 		FX:             fx.NewHandler(nil),
+		EOD:            interest.NewHandler(nil),
 	})
 	if extra != nil {
 		extra(h.(chi.Router))

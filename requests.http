@@ -461,3 +461,25 @@ Content-Type: application/json
 Idempotency-Key: {{$guid}}
 
 {"from_account_id": "{{myAccounts.response.body.$.items[0].id}}", "to_iban": "{{myAccounts.response.body.$.items[1].iban}}", "amount_minor": 100000, "currency": "TRY", "description": "TL → USD"}
+
+# ---------------------------------------------------------------------------
+# Gün sonu: faiz tahakkuku ve stopaj (F-6, T-4)
+# ---------------------------------------------------------------------------
+
+### Gün sonunu başlat (operasyon) — 202; aynı gün tekrar → 200 aynı çalıştırma (çift tahakkuk yok)
+POST {{baseUrl}}/api/v1/eod/runs
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+
+{"business_date": "2026-10-30"}
+
+### Gün sonu durumu ve tahakkuk toplamları (brüt = net + stopaj)
+GET {{baseUrl}}/api/v1/eod/runs/2026-10-30
+Authorization: Bearer {{loginOps.response.body.access_token}}
+
+### Yetki ihlali: müşteri gün sonu başlatamaz — 403
+POST {{baseUrl}}/api/v1/eod/runs
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+
+{"business_date": "2026-10-30"}

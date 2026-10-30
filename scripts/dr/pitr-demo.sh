@@ -41,7 +41,13 @@ step() { echo "→ $*"; }
 
 step "1/6 Temel yedek (pg_basebackup) ve mantıksal yedek (pg_dump)"
 primary mkdir -p "$ARCHIVE_DIR"
-primary pg_basebackup -U "$POSTGRES_USER" -D "$ARCHIVE_DIR/base" -Fp -X none -c fast
+# Docker volume'ü yoğunken nadiren ilk deneme dosya oluşturamayabiliyor; en fazla 3 kez denenir.
+for attempt in 1 2 3; do
+  primary rm -rf "$ARCHIVE_DIR/base"
+  primary pg_basebackup -U "$POSTGRES_USER" -D "$ARCHIVE_DIR/base" -Fp -X none -c fast && break
+  [ "$attempt" = 3 ] && fail "pg_basebackup 3 denemede başarısız"
+  sleep 2
+done
 primary pg_dump -U "$POSTGRES_USER" -Fc -f "$ARCHIVE_DIR/logical.dump" "$POSTGRES_DB"
 sql "SELECT pg_switch_wal()" >/dev/null
 

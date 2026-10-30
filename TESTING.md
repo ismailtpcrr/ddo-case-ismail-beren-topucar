@@ -36,7 +36,9 @@ bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır.
 | `T-3` | Simülatör müşterisinin kartında HTTP üzerinden yarışlar: 60 eşzamanlı provizyon; her provizyonda 3 yarışan çekim; her çekimde 3 yarışan iade | Provizyonlardan tam `⌊kullanılabilir / tutar⌋` kadarı geçer (20); her provizyonda yalnız 1 çekim, her çekimde yalnız 1 iade geçer; bakiye = açılış − çekim + iade, `held` = Σ aktif kalan, kullanılabilir ≥ 0; `/admin/invariants` ok |
 | `T-7` | Geriye tarihli düzeltme (sim hesabın açılış kaydı, `effective_at` = kendi zamanı) ve `as_of`/`known_at`; ikinci ters kayıt; müşteri geçmişe bakmayı dener; dört göz (10.000,00 ve 10.000,01 TL, kendi isteğini onaylama, yetkisiz roller, çift onay, ret); **PITR betiğinin sonucu** | `as_of=E` güncel bilgiyle 0, `known_at=kayıt anı` ile eski bakiye; özgün satır silinmez (düzeltmeden önceki bilgiyle 1, şimdi 2 hareket); `409 ALREADY_REVERSED`; müşteri `403`; 10.000,00 TL onaysız, 10.000,01 TL `PENDING_APPROVAL` → isteyen `403 FOUR_EYES_VIOLATION`, sistem/müşteri `403`, uyum onayı `COMPLETED`, ikinci onay `409`, ret parayı oynatmaz; PITR `PASS`. `make verify` önce `scripts/dr/pitr-demo.sh`'i çalıştırır; T-7 ikisi de geçerse PASS |
 | `F-5` | Kur ekle/oku; çok para birimli transfer (demo TRY → USD); kur değişimi; dört göz eşiği döviz transferinde | Müşteri kur giremez `403`, geçersiz kur `400`; 1.000,00 TL @ 41,125 → **2432 USD sent** (banker's rounding) tek, 4 satırlı, her para biriminde dengeli kayıtla; `fx_rate` ve `to_amount_minor` kayıtta; yeni kur eklenince eski transfer ve `as_of` kuru değişmez; 300 USD (TL karşılığı > 10.000) `PENDING_APPROVAL`, 100 USD değil |
-| `F-6` … `F-8`, `T-4` … `T-6` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
+| `F-6` | Müşteri gün sonu başlatmayı dener; ileri tarih; operasyon bugünün gün sonunu başlatır ve bitmesini bekler; demo vadeli hesabın faiz kaydı | `403`; `422 FUTURE_BUSINESS_DATE`; `DONE`, ~4.000 vadeli hesap tahakkuk eder, her para biriminde brüt = net + stopaj; demo vadeli TRY (100.000 TL, %42 bileşik): brüt 11507 kuruş → net 9781 + %15 stopaj 1726, tek dengeli kayıt (borç faiz gideri / alacak müşteri + stopaj) |
+| `T-4` | Aynı günü ikinci kez başlat; sıra dışı geçmiş gün | İkincisi `200` (yeni çalıştırma yok), hesap sayısı ve tutarlar birebir aynı; `409 EOD_OUT_OF_ORDER`. Çökme/devam, gün tabanı, oran değişimi ve kuruş dağıtımı: `go test ./internal/interest/` |
+| `F-7`, `F-8`, `T-5`, `T-6` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
 
 Yerelde (compose dışında) çalıştırmak için:
 
@@ -215,6 +217,18 @@ veritabanına yalnız geçici `dr_demo` tablosunu ekler ve siler. Arşivin durum
 | Stopaj ve banker's rounding | `go test -run TestWithholding -v ./internal/interest/` | 100 TL brüt %15 → 15 vergi, 85 net; 16,5 kuruş → 16, 19,5 → 20 |
 | Property (rapid) | `go test -run TestPropertyCentDistributionAndWithholding -v ./internal/interest/` | Rastgele anapara/oran/stopaj/taban/gün dizisinde Σ günlük brüt = yuvarla(hassas toplam) ve her gün brüt = net + vergi |
 | Başlangıç oranları | Migrasyon 00014 | Vadeli TRY: bileşik ACT_365 %42; vadeli USD basit ACT_360 %3; vadeli EUR basit ACT_ACT %2; vadesiz %0; stopaj %15 (2026-01-01'den) |
+
+## Gün sonu: faiz tahakkuku ve stopaj (F-6, T-4)
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Gün sonunu başlat | Operasyon token'ıyla `POST /api/v1/eod/runs {"business_date":"2026-10-30"}` | `202` (worker yürütür); `GET /api/v1/eod/runs/2026-10-30` → `DONE`, para birimi başına tahakkuk sayısı ve brüt/net/stopaj toplamları |
+| Aynı günü tekrar | Aynı istek | `200`, aynı çalıştırma; yeni tahakkuk yok (`UNIQUE(account_id, accrual_date)`) |
+| Faiz hesaba geçti | Müşteri token'ıyla vadeli TRY hesabının `/entries` | `INTEREST_ACCRUAL` hareketi, `balance_effect_minor` = net faiz |
+| Çökme ve kaldığı yerden devam (otomatik) | `cd backend && go test -race -run TestEODResumesAfterCrashWithoutDoubleAccrual -v ./internal/interest/` | 7 hesap, partide 2: 2 parti sonra çöker (yarım), yeniden çalıştırma devam eder; her hesap tam 1 kez, tutarlar çökmesiz hesapla birebir aynı, `attempts = 2` |
+| Çökme ve devam (canlı) | `.env`'e `EOD_CRASH_AFTER_BATCHES=2` ve `EOD_BATCH_SIZE=500`, `WORKER_JOB_LEASE=20s` ekleyip `docker compose up -d worker`; gün sonunu başlat; `docker compose logs -f worker` | Worker 2 partiden sonra `EOD_CRASH_AFTER_BATCHES reached` ile çıkar, Docker yeniden başlatır, kira dolunca iş yeniden alınır ve `last_account_id`'den devam eder; `GET /eod/runs/{date}` → `DONE`, `attempts ≥ 2`, tahakkuk sayısı hesap sayısına eşit. Sonra ayarları geri alın |
+| Çift tahakkuk imkânsız (DB) | `go test -run TestAccrualUniquePerAccountAndDay ./internal/interest/` | Aynı hesap/gün ikinci satır `interest_accruals_once` kısıtına takılır |
+| Defter ve tutarlar | `go test -run TestEODAccruesInterestWithTaxIntoLedger -v ./internal/interest/` | 3 gün: tutarlar saf fonksiyonla birebir aynı; brüt = net + vergi; `/admin/invariants` ok |
 
 ## Kur yönetimi ve çok para birimli transfer (F-5)
 

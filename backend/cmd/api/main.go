@@ -19,6 +19,7 @@ import (
 	"parakopru/internal/card"
 	"parakopru/internal/customer"
 	"parakopru/internal/fx"
+	"parakopru/internal/interest"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
@@ -102,6 +103,7 @@ func run() error {
 		Transfers:      transfer.NewHandler(transferSvc),
 		Cards:          card.NewHandler(cardSvc),
 		FX:             fx.NewHandler(fxSvc),
+		EOD:            interest.NewHandler(interest.NewService(txm, idGen, clk, recorder, ledgerSvc, accountSvc, cardSvc, jobs.NewQueue(idGen, clk), interest.Config{})),
 	})
 
 	srv := &http.Server{

@@ -564,7 +564,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 
 ### H — Faiz ve gün sonu (T-4, F-6)
 - [x] H1 `feat(interest)`: oran/stopaj tabloları, gün tabanları, basit/bileşik, kümülatif yuvarlama (saf fonksiyonlar + testler)
-- [ ] H2 `feat(interest)`: kaldığı yerden devam eden gün sonu işi, çökme testi + verify'a F-6, T-4
+- [x] H2 `feat(interest)`: kaldığı yerden devam eden gün sonu işi, çökme testi + verify'a F-6, T-4
 
 ### I — Mutabakat (T-5, F-8)
 - [ ] I1 `feat(sim)`: tohumlu gün sonu ekstre dosyası (CSV/JSON, bilerek bozuk ve tutarsız satırlar)

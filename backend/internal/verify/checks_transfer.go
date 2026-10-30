@@ -104,12 +104,16 @@ func (e *Env) awaitSettled(ctx context.Context, token string, ts []xfer, limit t
 	for {
 		var pending []string
 		var mu sync.Mutex
+		// Bekleyenler goroutine'ler başlamadan seçilir: final haritası yalnız kilit altında yazılır, burada okunur.
+		var todo []xfer
+		for _, t := range ts {
+			if final[t.ID] == "" {
+				todo = append(todo, t)
+			}
+		}
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(16)
-		for _, t := range ts {
-			if final[t.ID] != "" {
-				continue
-			}
+		for _, t := range todo {
 			g.Go(func() error {
 				var cur xfer
 				if err := e.getJSON(gctx, "GET /transfers/"+t.ID, http.MethodGet, "/api/v1/transfers/"+t.ID, token, nil, http.StatusOK, &cur); err != nil {

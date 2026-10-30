@@ -24,6 +24,7 @@ import (
 	"parakopru/internal/card"
 	"parakopru/internal/customer"
 	"parakopru/internal/fx"
+	"parakopru/internal/interest"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/clock"
@@ -78,8 +79,20 @@ func run() error {
 
 	cardSvc := card.NewService(txm, idGen, clk, recorder, ledgerSvc, accountSvc)
 
+	eodSvc := interest.NewService(txm, idGen, clk, recorder, ledgerSvc, accountSvc, cardSvc, jobs.NewQueue(idGen, clk),
+		interest.Config{BatchSize: cfg.EODBatchSize, CrashAfterBatches: cfg.EODCrashAfterBatches})
+
 	// İş türleri.
 	runner.Handle(transfer.JobSend, transferSvc.HandleSend)
+	runner.Handle(interest.JobEOD, func(ctx context.Context, job jobs.Job) error {
+		err := eodSvc.HandleJob(ctx, job)
+		if errors.Is(err, interest.ErrSimulatedEnd) {
+			// Çökme testi: süreç gerçekten ölür (yarım iş kirada kalır); yeniden başlayınca iş tekrar alınır ve kaldığı yerden sürer.
+			log.Error("EOD_CRASH_AFTER_BATCHES reached: exiting to simulate a crash")
+			os.Exit(3)
+		}
+		return err
+	})
 
 	// Sağlık ucu: Docker healthcheck için; veritabanı erişimini kontrol eder.
 	mux := http.NewServeMux()

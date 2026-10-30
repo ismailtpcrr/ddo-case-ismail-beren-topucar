@@ -73,6 +73,10 @@ type Worker struct {
 	// Süresi dolan kart provizyonlarının serbest bırakılma sıklığı.
 	HoldExpiryInterval time.Duration `env:"HOLD_EXPIRY_INTERVAL" envDefault:"5s"`
 
+	// Gün sonu: parti büyüklüğü ve çökme testi (> 0 ise bu kadar parti sonra süreç çıkar; yeniden başlayınca kaldığı yerden devam eder).
+	EODBatchSize         int `env:"EOD_BATCH_SIZE"          envDefault:"1000"`
+	EODCrashAfterBatches int `env:"EOD_CRASH_AFTER_BATCHES" envDefault:"0"`
+
 	BankURL     string        `env:"BANK_URL"     envDefault:"http://simulator:8080"`
 	BankTimeout time.Duration `env:"BANK_TIMEOUT" envDefault:"3s"`
 }
