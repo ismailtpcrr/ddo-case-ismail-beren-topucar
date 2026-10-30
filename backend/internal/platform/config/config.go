@@ -135,6 +135,18 @@ type Simulator struct {
 	// Aynı tohum aynı veriyi üretir (proje.md §8).
 	Seed      int64 `env:"SIM_SEED"      envDefault:"20261026"`
 	Customers int   `env:"SIM_CUSTOMERS" envDefault:"20000"`
+
+	// Dış banka sahtesi (proje.md Görev 2: %20 hata, %10 çift cevap).
+	BankFailurePercent   int           `env:"BANK_FAILURE_PERCENT"   envDefault:"20"`
+	BankDuplicatePercent int           `env:"BANK_DUPLICATE_PERCENT" envDefault:"10"`
+	BankMinLatency       time.Duration `env:"BANK_MIN_LATENCY"       envDefault:"20ms"`
+	BankMaxLatency       time.Duration `env:"BANK_MAX_LATENCY"       envDefault:"250ms"`
+	BankHang             time.Duration `env:"BANK_HANG"              envDefault:"15s"` // zaman aşımı hatasında bağlantının asılı kalma süresi
+
+	// Banka bildirimlerinin gönderileceği API (boşsa bildirim yok) ve "sistem" rolündeki hesap.
+	APIURL         string `env:"SIM_API_URL"`
+	SystemEmail    string `env:"SIM_SYSTEM_EMAIL"    envDefault:"sistem@parakopru.test"`
+	SystemPassword string `env:"SIM_SYSTEM_PASSWORD"`
 }
 
 // Validate etiketlerle ifade edilemeyen kuralları kontrol eder.
@@ -144,6 +156,10 @@ func (c Simulator) Validate() error {
 		return errors.New("DB_MAX_CONNS must be at least 1")
 	case c.Customers < 0 || c.Customers > 1_000_000:
 		return errors.New("SIM_CUSTOMERS must be between 0 and 1000000")
+	case c.BankFailurePercent < 0 || c.BankFailurePercent > 100 || c.BankDuplicatePercent < 0 || c.BankDuplicatePercent > 100:
+		return errors.New("BANK_*_PERCENT must be between 0 and 100")
+	case c.BankMinLatency < 0 || c.BankMaxLatency < c.BankMinLatency:
+		return errors.New("BANK_MAX_LATENCY must be at least BANK_MIN_LATENCY")
 	}
 	return nil
 }

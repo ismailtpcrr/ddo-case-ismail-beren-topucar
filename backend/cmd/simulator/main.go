@@ -60,6 +60,18 @@ func run() error {
 			}
 			return nil
 		}}))
+
+	// Dış banka sahtesi aynı süreçte, aynı portta: compose ağında http://simulator:8080/v1/transfers.
+	var notifier sim.Notifier
+	if cfg.APIURL != "" {
+		notifier = sim.NewAPINotifier(cfg.APIURL, cfg.SystemEmail, cfg.SystemPassword)
+	}
+	bank := sim.NewBank(sim.BankConfig{
+		Seed: cfg.Seed, FailurePercent: cfg.BankFailurePercent, DuplicatePercent: cfg.BankDuplicatePercent,
+		MinLatency: cfg.BankMinLatency, MaxLatency: cfg.BankMaxLatency, Hang: cfg.BankHang,
+	}, notifier, log)
+	mux.Handle("/v1/", bank.Handler())
+
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.ListenAndServe() }()

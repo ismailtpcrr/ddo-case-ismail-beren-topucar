@@ -221,6 +221,20 @@ conservation_test.go:143: [rapid] OK, passed 100 tests (4.521866208s)
 | Toplu yazma doğru | `go test -run TestSeedWritesBalancedLedgerAndIsIdempotent -v ./internal/sim/` | Kayıtlar yazılır, değişmezler ok, OPENING_EQUITY eksi toplam, ikinci çalıştırma atlanır |
 | Tohumu değiştirme | `.env` içinde `SIM_SEED`/`SIM_CUSTOMERS` değiştirip `make reset-demo` | Farklı tohum farklı veri; boyut `SIM_CUSTOMERS` ile ayarlanır |
 
+## Dış banka sahtesi (simülatör)
+
+Banka, `simulator` servisinde, compose ağında `http://simulator:8080` adresindedir (host'a açık değil).
+Ayarlar `.env`: `BANK_FAILURE_PERCENT=20`, `BANK_DUPLICATE_PERCENT=10`, `SIM_SEED`.
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Gönderim | `docker run --rm --network parakopru_default curlimages/curl -s -m 5 -X POST -H 'Content-Type: application/json' -d '{"reference":"deneme-1","amount_minor":1000,"currency":"TRY","beneficiary_iban":"TR450099900000000000000001"}' http://simulator:8080/v1/transfers` | Çoğunlukla `200 {"status":"COMPLETED",…}`; yaklaşık beşte birinde `503`, bağlantı kesilmesi ya da zaman aşımı. Aynı referansla tekrar: aynı sonuç, yeni işlem yok |
+| Sorgulama | Aynı ağda `curl http://simulator:8080/v1/transfers/deneme-1` | `COMPLETED`, `REJECTED` (geçersiz alıcı IBAN) ya da `NOT_FOUND` (hiç işlenmedi). Sorgulamada hata üretilmez |
+| %20 hata ve belirsiz sonuç | `cd backend && go test -run TestBankFailureRateAndUncertainOutcomes -v ./internal/sim/` | Hata oranı ≈ %20 (±3); hatalı çağrıların bir kısmı işlenmeden (`NOT_FOUND`), bir kısmı **işlendiği halde** (`COMPLETED`) hata dönmüştür |
+| Banka tarafı idempotans | `go test -run TestBankIsIdempotentPerReference ./internal/sim/` | Aynı referansla yeniden denemeler tek işlem üretir |
+| %10 çift cevap | `go test -run TestBankSendsDuplicateNotifications ./internal/sim/` | Sonuç bildirimlerinin ≈ %10'u iki kez gelir |
+| Aynı tohum = aynı davranış | `go test -run TestBankIsDeterministicPerSeed ./internal/sim/` | İki örnek aynı isteklere aynı kaderi yaşatır; farklı tohum farklı |
+
 ## Doğrulama kimlikleri (F-1 … F-8, T-1 … T-7)
 
 Her kimlik, ilgili özellik geliştirildiğinde bu tabloya ve `make verify`'a eklenecek.

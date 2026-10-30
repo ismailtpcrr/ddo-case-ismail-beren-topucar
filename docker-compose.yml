@@ -91,6 +91,11 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SIM_SEED: ${SIM_SEED:-20261026}
       SIM_CUSTOMERS: ${SIM_CUSTOMERS:-20000}
+      BANK_FAILURE_PERCENT: ${BANK_FAILURE_PERCENT:-20}
+      BANK_DUPLICATE_PERCENT: ${BANK_DUPLICATE_PERCENT:-10}
+      # Banka bildirimleri API'ye "sistem" rolündeki hesapla gönderilir.
+      SIM_API_URL: http://api:8080
+      SIM_SYSTEM_PASSWORD: ${DEMO_PASSWORD:?.env eksik}
     depends_on:
       api:
         condition: service_healthy

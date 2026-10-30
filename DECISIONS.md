@@ -372,3 +372,27 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
 - **Sonuçlar / ödünleşimler:** `go run …@sürüm` her çalıştırmada derler (~1 dk, modül önbelleğiyle kısalır). Eylem sürümleri
   (`checkout@v4` vb.) ana sürüm etiketine bağlıdır, commit SHA'sına sabitlenmedi. CI'ın GitHub'da yeşil çalıştığı push sonrası
   Actions sekmesinden görülür; bu oturumda yalnızca yerelde eşdeğer komutlar çalıştırıldı.
+
+## K-19 Dış banka sahtesi: çağrı başına hata, referans başına kalıcı işlem
+
+*(PLAN.md §5.3; C1 adımı. PLAN §14 madde 11'in banka tarafı.)*
+
+- **Bağlam:** proje.md Görev 2: dış servis zaman aşımı, tekrar eden cevap ve belirsiz sonuç ("işlendi mi bilmiyoruz")
+  üretir; %20 hata, %10 çift cevap; aynı tohumla aynı veri (§8). Transfer sagası (C2) bu davranışa karşı sınanacak.
+- **Karar:**
+  - **Ayrı süreç değil, simülatör servisinin bir bölümü:** aynı süreçte `/v1/transfers` uçları (compose ağında
+    `http://simulator:8080`); şartname tek bir veri üretici servisi istiyor.
+  - **Hata çağrı başına, işlem referans başına:** her çağrının kaderi (tohum, referans, o referansa kaçıncı çağrı)
+    üçlüsünden deterministik türetilir. %20 hata dört eşit türe bölünür: zaman aşımı (işlenmeden), 503 (işlenmeden),
+    **503 (işlendikten sonra)**, **zaman aşımı (işlendikten sonra)**: son ikisi belirsiz sonuçtur. İşlenmiş transfer kalıcıdır;
+    aynı referansla tekrar gönderim yeni işlem yapmaz, aynı sonucu verir (banka tarafı idempotans).
+  - **Zaman aşımı = bağlantı asılı kalır** (varsayılan 15 sn, istemci zaman aşımından uzun) ve sonra yanıtsız kesilir.
+  - **Çift cevap = sonuç bildirimi (webhook) iki kez:** işlenen her transfer için bildirim ayrıca, kısa gecikmeyle API'ye gider
+    ve %10'unda iki kez. Bildirim "sistem" rolündeki hesapla gönderilir (RBAC her yerde). API'nin webhook ucu C2'de gelir;
+    o zamana kadar bildirim başarısızlıkları yalnız debug seviyesinde loglanır.
+  - **Sorgulama hata üretmez** (`COMPLETED | REJECTED | NOT_FOUND`): belirsiz sonucu çözmenin güvenilir bir yolu olmalı.
+  - Geçersiz kontrol haneli alıcı IBAN'ı `REJECTED` olur (şartnamede olmayan bir "rastgele ret oranı" eklenmedi).
+- **Değerlendirilen alternatifler:** Hatayı referansa sabitlemek (aynı transfer her denemede hata verir, hiçbir zaman çözülmez);
+  tamamen rastgele (tohumsuz) hata (test tekrarlanamaz); ayrı bir banka servisi (şartname tek simülatör servisi istiyor).
+- **Sonuçlar / ödünleşimler:** Banka durumu bellekte tutulur; simülatör yeniden başlarsa unutur (sorgulama `NOT_FOUND` döner).
+  Kaos senaryosunda bu bilerek kullanılabilir. Gerçek bir bankada durum kalıcıdır.
