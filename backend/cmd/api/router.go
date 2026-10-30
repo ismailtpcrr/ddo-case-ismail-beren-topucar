@@ -9,6 +9,7 @@ import (
 
 	"parakopru/internal/account"
 	"parakopru/internal/customer"
+	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
 	"parakopru/internal/platform/health"
@@ -29,6 +30,7 @@ type routerDeps struct {
 	Audit          *audit.Handler
 	Customers      *customer.Handler
 	Accounts       *account.Handler
+	Ledger         *ledger.Handler
 }
 
 // newRouter tüm HTTP uçlarını ve ortak middleware zincirini kurar.
@@ -74,6 +76,12 @@ func newRouter(d routerDeps) http.Handler {
 			r.With(auth.Require(auth.PermCustomersWrite)).Post("/accounts", d.Accounts.Open)
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts", d.Accounts.List)
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts/{id}", d.Accounts.Get)
+
+			// Çift taraflı defter (F-2, T-1, T-7). Müşteri yalnız kendi hesabının hareketlerini görür (serviste).
+			// Elle ters kayıt para hareketidir: Idempotency-Key ister (handler'da).
+			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts/{id}/entries", d.Ledger.AccountEntries)
+			r.With(auth.Require(auth.PermLedgerRead)).Get("/ledger/entries/{id}", d.Ledger.Entry)
+			r.With(auth.Require(auth.PermLedgerReverse)).Post("/ledger/entries/{id}/reverse", d.Ledger.Reverse)
 		})
 	})
 

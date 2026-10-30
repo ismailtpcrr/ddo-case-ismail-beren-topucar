@@ -206,3 +206,55 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
     kimlikleri tahmin edilemez UUID'ler olduğundan varlığı sızdırmanın pratik riski düşüktür.
   - Bakiye işaretini her yerde "+ borç" olarak tutmak: müşteri ekranında ve kısıtta işaret çevirmek gerekir; hata kaynağı olur.
 - **Sonuçlar / ödünleşimler:** Demo müşteri ve hesapları api açılışında oluşur; bakiyeleri açılış kaydıyla (defterden) B6'da gelir.
+
+## K-13 Defterin ayrıntıları: işaretli satır, üç katlı borç = alacak, iki zaman, ters kayıt kuralları
+
+*(PLAN.md §14 madde 7, 8 ve 12'nin uygulanışı; B3 adımı.)*
+
+- **Bağlam:** proje.md Görev 1: borç = alacak, kayan nokta yok, türetilebilir bakiye + tutarlı özet, kilit sıralamasıyla
+  deadlock'suz. Görev 7: satırlar silinmez/güncellenmez, düzeltme ters kayıtla; işlem zamanı ile geçerlilik zamanı ayrı.
+  PLAN.md §5.1 yapıyı veriyor, ama şunları açık bırakıyor: §7'deki ters kayıt ucunun yetkisi (§5.10 matrisinde satırı yok),
+  hangi kayıtların elle ters çevrilebileceği, `effective_at`/`recorded_at` kolonlarının hangi adımda geleceği.
+- **Karar:**
+  - **İşaretli satır:** `postings.amount_minor` + borç, − alacak. API'de yön (`side`) + pozitif tutar; hesap hareketlerinde
+    ayrıca bakiyeye etkisi (`balance_effect_minor`, müşteri hesabında giriş +, çıkış −).
+  - **Borç = alacak üç yerde:** (1) Go'da `Entry.Validate`: en az iki satır, pozitif tutar, her para biriminde Σ = 0;
+    (2) veritabanında `DEFERRABLE INITIALLY DEFERRED` constraint trigger: commit anında dengesiz, satırsız ya da tek satırlı
+    kayıt reddedilir; (3) satırın para birimi hesabınkiyle aynı (`(account_id, currency)` yabancı anahtarı).
+  - **Özet:** `Post`, hesap başına toplam değişimi hesabın `normal_side`'ına göre doğal işarete çevirip aynı transaction'da
+    yazar. Eksiye düşemeyen hesapta kullanılabilir bakiye Go'da kontrol edilir (`422 INSUFFICIENT_FUNDS`); `CHECK` son güvencedir.
+  - **Kilit:** kayda giren hesapların özet satırları tek sorguda `ORDER BY account_id FOR UPDATE` ile alınır. Test, yeniden
+    deneme yapmayan transaction'larla ters yönlü eşzamanlı kayıtlarda hiç deadlock olmadığını gösterir.
+  - **İki zaman bu adımda:** `effective_at` (verilmezse veritabanı saati) ve `recorded_at` (trigger her eklemede `now()`
+    yazar; ne istemci ne uygulama belirleyebilir). `effective_at ≤ recorded_at`: geriye tarihli kayıt olur, ileri tarihli
+    olmaz. Zamanların satırlarda kopyası var (bakiye/hareket sorguları tek dizinden okur); kopyaların kayıttakilerle aynı
+    olmasını yabancı anahtar sağlar, bu da commit edilmiş bir kayda sonradan satır eklenmesini engeller.
+    `as_of`/`known_at` sorguları F1'de.
+  - **Değişmezlik:** `forbid_mutation()` trigger'ı (UPDATE/DELETE/TRUNCATE, süper kullanıcıya da) + uygulama rolünden
+    `UPDATE, DELETE, TRUNCATE` yetkisinin geri alınması.
+  - **Ters kayıt:** `Reverse` genel bir servis işlevidir (transfer sagasının telafisi gibi modüller kendi transaction'larında
+    kullanır). Bir kayıt bir kez ters çevrilir (`UNIQUE (reversal_of)`; eşzamanlı denemede biri kazanır), ters kayıt yeniden
+    ters çevrilemez, geçerlilik zamanı özgün kayıttan önce olamaz.
+  - **Elle ters kayıt ucu** (`POST /ledger/entries/{id}/reverse`): yalnız bir sürece ait olmayan kayıt türleri
+    (şimdilik `OPENING_BALANCE`). Yeni izin `ledger:reverse`, yalnız operasyon uzmanında. `Idempotency-Key` zorunlu;
+    denetim kaydına `ledger.reverse` (eski: özgün kayıt, yeni: ters kayıt) yazılır.
+  - **Ek okuma ucu** `GET /ledger/entries/{id}` (`ledger:read`): kaydın iki tarafını gösterir (F-2, "her kuruş açıklanabilir").
+  - **Defter kayıtları ayrıca `audit_log`'a yazılmaz:** defter zaten değiştirilemez bir kayıttır. Denetim kaydına kaydı
+    doğuran iş işlemi (transfer, ters kayıt …) yazılır.
+  - **Demo müşterinin açılış bakiyeleri bu adımda** defterden yazılır (borç `OPENING_EQUITY` / alacak müşteri): defter
+    artık var ve B4'teki transfer bakiyesiz denenemez. Simülatör müşterilerininki B6'da.
+- **Değerlendirilen alternatifler:**
+  - Ayrı borç/alacak kolonları: denge kontrolü ve bakiye toplamı tek işaretli kolonla daha basit.
+  - Özeti veritabanı trigger'ıyla güncellemek: kilit sırası ve yetersiz bakiye kararı uygulamanın elinden çıkar; hata
+    anlamlı bir `422` yerine kısıt ihlali olarak gelir.
+  - `SERIALIZABLE` + yeniden deneme: sıcak hesaplarda (ör. NOSTRO) sürekli çakışma ve yeniden deneme; sıralı kilit bekletir.
+  - Her kaydı elle ters çevirmeye izin vermek: transfer COMPLETED görünürken para geri dönebilir; süreç ile defter ayrışır.
+  - `recorded_at`'i uygulamanın saatiyle yazmak: "o gün ne biliyorduk" sorusunun cevabı uygulamaya güvenmek zorunda kalır.
+  - İki zaman kolonunu F1'e bırakmak: değişmez tabloya sonradan dolu kolon eklemek bir UPDATE gerektirir; trigger buna izin vermez.
+- **Sonuçlar / ödünleşimler:**
+  - Borç = alacak trigger'ı satır başına çalışır (iki satırlı kayıtta commit'te üç küçük, dizinli sorgu).
+  - Bankanın iç hesapları (NOSTRO, takas hesapları) aynı para birimindeki her kayıtta kilitlenir; bu hesaplara dokunan
+    işlemler o satırda sıraya girer. Şartnamedeki hacim (günde ~200.000 işlem ≈ 2,3/sn) için yeterli; çok daha yüksek
+    hacimde iç hesap özeti parçalara bölünmelidir (bilinen sınırlama).
+  - `ledger:reverse` PLAN.md §5.10 matrisinde yok; `TestPermissionMatrixMatchesPlan` bu satırla birlikte doğruluyor.
+  - `journal_entries`'te zaman kopyalarının yabancı anahtarı için ek bir benzersiz dizin var.

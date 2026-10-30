@@ -10,7 +10,8 @@ import (
 )
 
 // PLAN.md §5.10 yetki matrisi; her satır: izin → bu izne sahip roller.
-// Tablo değişirse bu test de bilinçli olarak güncellenmelidir.
+// Tablo değişirse bu test de bilinçli olarak güncellenmelidir. ledger:reverse §5.10'da yok; PLAN.md §7'deki
+// ters kayıt ucu için eklendi (DECISIONS.md K-13).
 func TestPermissionMatrixMatchesPlan(t *testing.T) {
 	C, O, R, U, D, S := auth.RoleCustomer, auth.RoleOperations, auth.RoleRiskAnalyst, auth.RoleCompliance, auth.RoleAuditor, auth.RoleSystem
 	matrix := map[auth.Permission][]auth.Role{
@@ -18,6 +19,7 @@ func TestPermissionMatrixMatchesPlan(t *testing.T) {
 		auth.PermOwnBanking:        {C},
 		auth.PermCustomersWrite:    {O},
 		auth.PermLedgerRead:        {O, R, U, D},
+		auth.PermLedgerReverse:     {O},
 		auth.PermTransfersCreate:   {C, O},
 		auth.PermTransfersApprove:  {O, U},
 		auth.PermFXWrite:           {O},

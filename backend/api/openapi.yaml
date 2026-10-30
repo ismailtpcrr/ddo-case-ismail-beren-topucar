@@ -220,6 +220,88 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/accounts/{id}/entries:
+    get:
+      summary: Hesap hareketleri (en yeni önce, keyset sayfalı)
+      description: |
+        İzin: `own_banking` ya da `ledger:read`. Müşteri başka bir müşterinin hesabını isterse 403.
+        Her hareket bir defter satırıdır: yön (`side`), pozitif tutar ve bakiyeye etkisi (`balance_effect_minor`;
+        müşteri hesabında para girişi +, çıkışı −). Hareketlerin toplamı hesabın bakiyesidir.
+        `as_of` / `known_at` (zaman yolculuğu) F1 adımında eklenecek.
+      tags: [Defter]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/AccountPosting" } }
+                  next_cursor: { type: string, nullable: true }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ledger/entries/{id}:
+    get:
+      summary: Yevmiye kaydı ve bütün satırları (borç ve alacak tarafları)
+      description: |
+        İzin: `ledger:read` (operasyon, risk, uyum, denetçi). Her para biriminde borç toplamı = alacak toplamı.
+        Kayıt ters çevrildiyse `reversed_by` ters kaydı gösterir; özgün kayıt değişmez.
+      tags: [Defter]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Kayıt, content: { application/json: { schema: { $ref: "#/components/schemas/JournalEntry" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/ledger/entries/{id}/reverse:
+    post:
+      summary: Ters kayıt (düzeltme)
+      description: |
+        İzin: `ledger:reverse` (operasyon uzmanı). Defter satırları silinmez ve güncellenmez; düzeltme, özgün kaydın
+        satırlarının tersini yazan yeni bir kayıtla yapılır. Bir kayıt yalnız bir kez ters çevrilebilir; ters kayıt
+        yeniden ters çevrilemez. Elle yalnız bir sürece ait olmayan kayıtlar (ör. `OPENING_BALANCE`) ters çevrilebilir;
+        transfer, kart ve faiz kayıtları kendi akışlarıyla düzeltilir. Denetim kaydına `ledger.reverse` yazılır.
+      tags: [Defter]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReverseRequest" }
+            example: { reason: Hatalı açılış bakiyesi }
+      responses:
+        "201":
+          description: Ters kayıt yazıldı
+          headers:
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+          content: { application/json: { schema: { $ref: "#/components/schemas/JournalEntry" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Kayıt zaten ters çevrilmiş (`ALREADY_REVERSED`)
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "422":
+          description: |
+            Elle ters çevrilemez (`ENTRY_NOT_REVERSIBLE`), ters kayıt için bakiye yetersiz (`INSUFFICIENT_FUNDS`)
+            ya da aynı Idempotency-Key farklı bir istekle kullanılmış (`IDEMPOTENCY_KEY_REUSED`)
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
   /health:
     get:
       summary: Sağlık durumu (veritabanı bağlantısı dahil)
@@ -323,6 +405,58 @@ components:
         balance_minor: { type: integer, format: int64, description: "Bakiye (kuruş/sent)" }
         held_minor: { type: integer, format: int64, description: "Aktif kart provizyonları" }
         available_minor: { type: integer, format: int64, description: "Kullanılabilir = bakiye − provizyonlar" }
+    AccountPosting:
+      type: object
+      properties:
+        id: { type: string, format: uuid, description: Defter satırının kimliği }
+        entry_id: { type: string, format: uuid }
+        kind: { type: string, example: OPENING_BALANCE, description: "Kaydın türü (ör. OPENING_BALANCE, REVERSAL)" }
+        description: { type: string }
+        reference: { type: string, nullable: true, description: "İş kaydının kimliği (ör. transfer ID)" }
+        reversal_of: { type: string, format: uuid, nullable: true }
+        side: { type: string, enum: [DEBIT, CREDIT] }
+        amount_minor: { type: integer, format: int64, minimum: 1 }
+        balance_effect_minor: { type: integer, format: int64, description: "Bakiyeye etkisi; müşteri hesabında giriş +, çıkış −" }
+        currency: { type: string, enum: [TRY, USD, EUR] }
+        effective_at: { type: string, format: date-time, description: Geçerlilik (valör) zamanı }
+        recorded_at: { type: string, format: date-time, description: "Kayıt zamanı (veritabanı saati; istemci belirleyemez)" }
+
+    JournalEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, example: REVERSAL }
+        description: { type: string }
+        reference: { type: string, nullable: true }
+        effective_at: { type: string, format: date-time }
+        recorded_at: { type: string, format: date-time }
+        reversal_of: { type: string, format: uuid, nullable: true, description: Bu bir ters kayıtsa özgün kayıt }
+        reversed_by: { type: string, format: uuid, nullable: true, description: Bu kayıt ters çevrildiyse ters kayıt }
+        postings:
+          type: array
+          minItems: 2
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              account_id: { type: string, format: uuid }
+              side: { type: string, enum: [DEBIT, CREDIT] }
+              amount_minor: { type: integer, format: int64, minimum: 1 }
+              currency: { type: string, enum: [TRY, USD, EUR] }
+
+    ReverseRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 400 }
+        effective_at:
+          type: string
+          format: date-time
+          description: |
+            Ters kaydın geçerlilik zamanı; verilmezse şimdi. Gelecekte ya da özgün kaydın geçerlilik zamanından
+            önce olamaz. Geriye tarihli düzeltme için özgün kaydın zamanı verilebilir.
+
     AuditRecord:
       type: object
       required: [id, at, actor_role, action, entity]

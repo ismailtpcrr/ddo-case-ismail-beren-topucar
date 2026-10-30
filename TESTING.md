@@ -123,7 +123,7 @@ Her test paketi kendi konteynerini açar, migrasyonları uygular ve iş bitince 
 
 | Ne denenir | Nasıl denenir | Beklenen sonuç |
 |---|---|---|
-| Demo müşterinin hesapları | Müşteri token'ıyla `GET /api/v1/accounts` | Vadesiz TRY, USD, EUR ve vadeli TRY; her birinde IBAN, bakiye, bloke, kullanılabilir bakiye |
+| Demo müşterinin hesapları | Müşteri token'ıyla `GET /api/v1/accounts` | Vadesiz TRY (50.000,00), USD (2.000,00), EUR (2.000,00) ve vadeli TRY (100.000,00); her birinde IBAN, bakiye, bloke, kullanılabilir bakiye. Bakiyeler açılış kaydıyla defterden gelir |
 | Müşteri ve hesap açma | Operasyon token'ıyla [requests.http](requests.http) "Müşteri aç" → "Vadeli EUR hesap aç" | `201`; IBAN üretilir; denetim kaydına `customer.create` ve `account.open` düşer |
 | Vade kuralları | Vadeli hesapta `maturity_date` olmadan / geçmiş tarihle; vadesizde tarihle | `400 VALIDATION_ERROR` |
 | Aynı kimlik numarası | Aynı `national_id` ile ikinci müşteri | `409 CUSTOMER_EXISTS` |
@@ -142,6 +142,27 @@ Her test paketi kendi konteynerini açar, migrasyonları uygular ve iş bitince 
 | Property testleri (rapid) | `go test -run TestProperty -v ./internal/money/` | Toplama değişmeli ve birleşmeli, `(a+b)-b = a`; metin ↔ tutar ve decimal ↔ tutar dönüşümleri kayıpsız; yuvarlama en fazla yarım kuruş sapar |
 | Fuzz (ekstre tutarı ayrıştırma) | `go test -run '^$' -fuzz FuzzParseAmount -fuzztime 30s ./internal/money/` | Panic yok; kabul edilen her metin aynı tutara geri döner |
 | Kayan nokta yasağı | `make lint` | Para paketlerinde `float32/64`, `decimal.NewFromFloat`, `.Float64()` kullanımı lint hatasıdır |
+
+## Çift taraflı defter
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Hesap hareketleri | Müşteri token'ıyla `GET /api/v1/accounts/{id}/entries` (kendi hesabı) | `200`; en yeni önce, sayfalı; her harekette `side`, `amount_minor`, `balance_effect_minor` (giriş +, çıkış −). Toplamları bakiyeye eşit |
+| Başkasının hareketleri | Müşteri token'ıyla başka bir müşterinin hesabının `/entries` ucu | `403 FORBIDDEN` |
+| Kaydın iki tarafı | Operasyon/risk/uyum/denetçi token'ıyla `GET /api/v1/ledger/entries/{entry_id}` | `200`; açılış kaydında borç `OPENING_EQUITY`, alacak müşteri hesabı; tutarlar eşit. Müşteri token'ıyla `403` |
+| Borç = alacak (Go) | `cd backend && go test -run 'TestValidate' -v ./internal/ledger/` | Tek satırlı, sıfır/negatif tutarlı, dengesiz ya da "100 TRY borç / 100 USD alacak" gibi para birimi karışık kayıtlar reddedilir |
+| Borç = alacak (veritabanı) | `go test -run TestDatabaseRejectsUnbalancedEntry -v ./internal/ledger/` | Doğrudan SQL ile yazılan dengesiz ya da satırsız kayıt commit anında reddedilir (`23514`); commit edilmiş kayda sonradan satır eklenemez; satırın para birimi hesabınkiyle aynı olmalı |
+| Özet doğal tarafa göre güncellenir | `go test -run TestPostUpdatesSummaryByNormalSide -v ./internal/ledger/` | Müşteri hesabı alacaklanınca, NOSTRO borçlanınca artar; her hesapta özet = defterden türetilen bakiye |
+| Yetersiz bakiye | `go test -run TestInsufficientFundsWritesNothing ./internal/ledger/` | `422 INSUFFICIENT_FUNDS`; hiçbir satır ve bakiye değişikliği kalmaz |
+| Kilit sırası, deadlock yok | `go test -run TestOppositeConcurrentPostingsDoNotDeadlock -v ./internal/ledger/` | 16 eşzamanlı işçi, rastgele ters yönlü 400 kayıt, yeniden denemesiz transaction'larla: tek bir deadlock bile yok; toplam para değişmez |
+| Defter değiştirilemez | `go test -run TestLedgerIsAppendOnly ./internal/ledger/` ya da `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "UPDATE postings SET amount_minor = 1"'` | Uygulama rolü `42501` (yetki yok); sahip rol bile trigger'a takılır: "postings tablosu eklemeli-yalnızdır" |
+| Kayıt zamanı veritabanından | `go test -run TestRecordedAtComesFromDatabase ./internal/ledger/` | Elle verilen `recorded_at` yok sayılır; geriye tarihli `effective_at` olur, ileri tarihli olmaz |
+| Ters kayıt | [requests.http](requests.http) "Ters kayıt (operasyon)" | `201`; yeni kayıt `kind=REVERSAL`, satırlar özgünün tersi, müşteri bakiyesi geri alınır; özgün kayıt yerinde (`reversed_by` dolu); denetim kaydına `ledger.reverse`. Demo bakiyesini geri getirmek için `make reset-demo` |
+| Ters kayıt idempotent | Aynı istek aynı `Idempotency-Key` ile | Aynı yanıt, `Idempotent-Replayed: true`; ikinci bir ters kayıt yazılmaz |
+| Bir kez ters çevrilir | Aynı kayıt yeni anahtarla; ters kaydın kendisi | `409 ALREADY_REVERSED`; `422 ENTRY_NOT_REVERSIBLE`. Eşzamanlı 10 deneme: `go test -run TestConcurrentReversalsOnlyOneWins ./internal/ledger/` → tam bir başarı |
+| Sürece ait kayıt elle ters çevrilemez | `go test -run TestReverseByRequest ./internal/ledger/` | Transfer kaydı gibi bir sürecin kaydı `422 ENTRY_NOT_REVERSIBLE` |
+| Ters kayıt yetkisi | Müşteri, risk, uyum ya da denetçi token'ıyla ters kayıt | `403 FORBIDDEN` (yalnız operasyon) |
+| Defterin tamamı dengede | `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT currency, sum(amount_minor) FROM postings GROUP BY 1"'` | Her para biriminde `0` |
 
 ## Doğrulama kimlikleri (F-1 … F-8, T-1 … T-7)
 

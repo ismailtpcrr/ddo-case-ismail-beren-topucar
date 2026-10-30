@@ -7,6 +7,7 @@ import (
 
 	"parakopru/internal/account"
 	"parakopru/internal/customer"
+	"parakopru/internal/ledger"
 	"parakopru/internal/money"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
@@ -20,11 +21,12 @@ const demoCustomerNationalID = "10000000146"
 // seedBase temel seed'dir (PLAN.md §6): api her açılışta çalıştırır; eksik olanı ekler, var olana dokunmaz.
 //   - her rol için bir demo kullanıcı
 //   - her para birimi için bankanın iç hesapları
-//   - demo müşterinin müşteri kaydı ve hesapları (vadesiz TRY/USD/EUR, vadeli TRY)
+//   - demo müşterinin müşteri kaydı, hesapları (vadesiz TRY/USD/EUR, vadeli TRY) ve açılış bakiyeleri
 //
-// 20.000 müşterilik toplu veri simülatörün işidir.
+// Açılış bakiyeleri de defterden geçer (borç OPENING_EQUITY / alacak müşteri); seed sonrası da her para biriminde
+// borç = alacak ve özet = defterden türetilen bakiye. 20.000 müşterilik toplu veri simülatörün işidir.
 func seedBase(ctx context.Context, log *slog.Logger, txm *db.TxManager, clk clock.Clock, demoPassword string,
-	authSvc *auth.Service, customers *customer.Service, accounts *account.Service,
+	authSvc *auth.Service, customers *customer.Service, accounts *account.Service, ledgerSvc *ledger.Service,
 ) error {
 	if _, err := authSvc.SeedDemoUsers(ctx, demoPassword); err != nil {
 		return err
@@ -45,18 +47,42 @@ func seedBase(ctx context.Context, log *slog.Logger, txm *db.TxManager, clk cloc
 		if err != nil || !created {
 			return err
 		}
-		for _, in := range []account.OpenInput{
-			{CustomerID: c.ID, Kind: account.Checking, Currency: money.TRY},
-			{CustomerID: c.ID, Kind: account.Checking, Currency: money.USD},
-			{CustomerID: c.ID, Kind: account.Checking, Currency: money.EUR},
-			{CustomerID: c.ID, Kind: account.TimeDeposit, Currency: money.TRY,
-				MaturityDate: clk.Now().AddDate(1, 0, 0).Format(time.DateOnly)},
+		// Vadesiz TRY bakiyesi 10.000 TL'nin üstünde: dört göz onaylı transfer de demo hesapla denenebilir.
+		for _, d := range []struct {
+			in      account.OpenInput
+			opening int64 // kuruş/sent
+		}{
+			{account.OpenInput{CustomerID: c.ID, Kind: account.Checking, Currency: money.TRY}, 50_000_00},
+			{account.OpenInput{CustomerID: c.ID, Kind: account.Checking, Currency: money.USD}, 2_000_00},
+			{account.OpenInput{CustomerID: c.ID, Kind: account.Checking, Currency: money.EUR}, 2_000_00},
+			{account.OpenInput{CustomerID: c.ID, Kind: account.TimeDeposit, Currency: money.TRY,
+				MaturityDate: clk.Now().AddDate(1, 0, 0).Format(time.DateOnly)}, 100_000_00},
 		} {
-			if _, err := accounts.OpenTx(ctx, tx, in); err != nil {
+			a, err := accounts.OpenTx(ctx, tx, d.in)
+			if err != nil {
+				return err
+			}
+			if err := postOpeningBalance(ctx, tx, accounts, ledgerSvc, a, money.New(d.opening, a.Currency)); err != nil {
 				return err
 			}
 		}
 		log.Info("demo customer seeded", slog.String("customer_id", c.ID.String()))
 		return nil
 	})
+}
+
+// postOpeningBalance hesabın açılış bakiyesini deftere yazar: borç OPENING_EQUITY / alacak müşteri hesabı.
+func postOpeningBalance(ctx context.Context, tx db.DBTX, accounts *account.Service, ledgerSvc *ledger.Service,
+	a account.Account, amount money.Amount,
+) error {
+	equity, err := accounts.InternalAccountID(ctx, tx, account.OpeningEquity, a.Currency)
+	if err != nil {
+		return err
+	}
+	_, err = ledgerSvc.Post(ctx, tx, ledger.Entry{
+		Kind:        ledger.KindOpeningBalance,
+		Description: "Açılış bakiyesi",
+		Lines:       []ledger.Line{ledger.Debit(equity, amount), ledger.Credit(a.ID, amount)},
+	})
+	return err
 }

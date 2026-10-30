@@ -17,6 +17,7 @@ import (
 
 	"parakopru/internal/account"
 	"parakopru/internal/customer"
+	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
 	"parakopru/internal/platform/clock"
@@ -71,9 +72,11 @@ func run() error {
 	recorder := audit.NewRecorder(idGen)
 	customerSvc := customer.NewService(txm, idGen, recorder)
 	accountSvc := account.NewService(txm, customerSvc, idGen, clk, recorder)
+	ledgerSvc := ledger.NewService(txm, idGen, recorder, accountSvc)
 
-	// Temel seed: demo kullanıcılar, iç hesaplar, demo müşteri. Var olana dokunmaz; her açılışta güvenle çalışır.
-	if err := seedBase(ctx, log, txm, clk, cfg.DemoPassword, authSvc, customerSvc, accountSvc); err != nil {
+	// Temel seed: demo kullanıcılar, iç hesaplar, demo müşteri ve açılış bakiyeleri. Var olana dokunmaz; her açılışta
+	// güvenle çalışır.
+	if err := seedBase(ctx, log, txm, clk, cfg.DemoPassword, authSvc, customerSvc, accountSvc, ledgerSvc); err != nil {
 		return err
 	}
 
@@ -87,6 +90,7 @@ func run() error {
 		Audit:          audit.NewHandler(audit.NewService(pool)),
 		Customers:      customer.NewHandler(customerSvc),
 		Accounts:       account.NewHandler(accountSvc),
+		Ledger:         ledger.NewHandler(ledgerSvc),
 	})
 
 	srv := &http.Server{

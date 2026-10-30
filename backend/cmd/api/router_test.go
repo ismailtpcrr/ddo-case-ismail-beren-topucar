@@ -18,6 +18,7 @@ import (
 
 	"parakopru/internal/account"
 	"parakopru/internal/customer"
+	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
 	"parakopru/internal/platform/clock"
@@ -44,6 +45,7 @@ func TestRoleWithoutPermissionGets403(t *testing.T) {
 }
 
 // Hesap açma yalnız operasyon uzmanının işi; müşteri tüm müşteri listesini göremez (PLAN.md §5.10).
+// Defter uçlarında da rolün izni yoksa servis hiç çağrılmadan 403 döner.
 func TestCustomerAndAccountWritePermissions(t *testing.T) {
 	s := newTestServer(t, nil, nil)
 	tokens := auth.NewTokens(testSecret, time.Minute, time.Hour, clock.System{})
@@ -56,6 +58,13 @@ func TestCustomerAndAccountWritePermissions(t *testing.T) {
 		{auth.RoleRiskAnalyst, http.MethodPost, "/api/v1/customers"},
 		{auth.RoleCustomer, http.MethodGet, "/api/v1/customers"},
 		{auth.RoleSystem, http.MethodGet, "/api/v1/accounts"},
+		// Defter: kayıt ayrıntısı yalnız ledger:read; elle ters kayıt yalnız operasyon (denetçi her yerde salt okur).
+		{auth.RoleCustomer, http.MethodGet, "/api/v1/ledger/entries/" + uuid.NewString()},
+		{auth.RoleSystem, http.MethodGet, "/api/v1/accounts/" + uuid.NewString() + "/entries"},
+		{auth.RoleCustomer, http.MethodPost, "/api/v1/ledger/entries/" + uuid.NewString() + "/reverse"},
+		{auth.RoleAuditor, http.MethodPost, "/api/v1/ledger/entries/" + uuid.NewString() + "/reverse"},
+		{auth.RoleCompliance, http.MethodPost, "/api/v1/ledger/entries/" + uuid.NewString() + "/reverse"},
+		{auth.RoleRiskAnalyst, http.MethodPost, "/api/v1/ledger/entries/" + uuid.NewString() + "/reverse"},
 	} {
 		token, _, err := tokens.IssueAccess(uuid.New(), tc.role)
 		require.NoError(t, err)
@@ -97,6 +106,7 @@ func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) 
 		Audit:          audit.NewHandler(nil),
 		Customers:      customer.NewHandler(nil),
 		Accounts:       account.NewHandler(nil),
+		Ledger:         ledger.NewHandler(nil),
 	})
 	if extra != nil {
 		extra(h.(chi.Router))

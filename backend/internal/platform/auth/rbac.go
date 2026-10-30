@@ -33,6 +33,7 @@ const (
 	PermOwnBanking        Permission = "own_banking"         // kendi hesap, işlem, kart, ekstre
 	PermCustomersWrite    Permission = "customers:write"     // müşteri ve hesap açma
 	PermLedgerRead        Permission = "ledger:read"         // tüm hesap ve defteri okuma, zaman yolculuğu
+	PermLedgerReverse     Permission = "ledger:reverse"      // elle ters kayıt (bir sürece ait olmayan kayıtlar; DECISIONS K-13)
 	PermTransfersCreate   Permission = "transfers:create"    // transfer başlatma (müşteri yalnız kendi hesabından)
 	PermTransfersApprove  Permission = "transfers:approve"   // dört göz onayı (10.000 TL üzeri)
 	PermFXWrite           Permission = "fx:write"            // kur yönetimi
@@ -52,8 +53,8 @@ var rolePermissions = map[Role][]Permission{
 		PermProfileRead, PermOwnBanking, PermTransfersCreate,
 	},
 	RoleOperations: {
-		PermProfileRead, PermCustomersWrite, PermLedgerRead, PermTransfersCreate, PermTransfersApprove,
-		PermFXWrite, PermReconOperate, PermEODRun,
+		PermProfileRead, PermCustomersWrite, PermLedgerRead, PermLedgerReverse, PermTransfersCreate,
+		PermTransfersApprove, PermFXWrite, PermReconOperate, PermEODRun,
 	},
 	RoleRiskAnalyst: {
 		PermProfileRead, PermLedgerRead, PermRiskRulesWrite, PermRiskReviewsDecide,

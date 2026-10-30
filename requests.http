@@ -131,3 +131,53 @@ Authorization: Bearer {{loginMusteri.response.body.access_token}}
 Content-Type: application/json
 
 {"customer_id": "{{newCustomer.response.body.id}}", "kind": "CHECKING", "currency": "TRY"}
+
+# ---------------------------------------------------------------------------
+# Çift taraflı defter (F-2, T-1, T-7)
+# ---------------------------------------------------------------------------
+
+### Demo müşterinin hesapları — açılış bakiyeleri defterden gelir (vadesiz TRY 50.000,00 TL)
+# @name myAccounts
+GET {{baseUrl}}/api/v1/accounts
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Hesap hareketleri (müşteri, kendi hesabı) — en yeni önce; balance_effect_minor: giriş +, çıkış −
+# @name myEntries
+GET {{baseUrl}}/api/v1/accounts/{{myAccounts.response.body.$.items[0].id}}/entries?limit=20
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Yevmiye kaydı ve iki tarafı (operasyon; müşteri 403) — borç OPENING_EQUITY / alacak müşteri
+GET {{baseUrl}}/api/v1/ledger/entries/{{myEntries.response.body.$.items[0].entry_id}}
+Authorization: Bearer {{loginOps.response.body.access_token}}
+
+### Ters kayıt (operasyon) — 201; aynı Idempotency-Key ile tekrar → aynı yanıt + Idempotent-Replayed: true
+# Not: demo bakiyesini sıfırlar; geri almak için `make reset-demo`.
+POST {{baseUrl}}/api/v1/ledger/entries/{{myEntries.response.body.$.items[0].entry_id}}/reverse
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: ters-kayit-demo-1
+
+{"reason": "Hatalı açılış bakiyesi"}
+
+### Aynı kaydı yeni anahtarla tekrar ters çevirme — 409 ALREADY_REVERSED
+POST {{baseUrl}}/api/v1/ledger/entries/{{myEntries.response.body.$.items[0].entry_id}}/reverse
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"reason": "Hatalı açılış bakiyesi"}
+
+### Idempotency-Key olmadan ters kayıt — 400 IDEMPOTENCY_KEY_REQUIRED
+POST {{baseUrl}}/api/v1/ledger/entries/{{myEntries.response.body.$.items[0].entry_id}}/reverse
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+
+{"reason": "Anahtarsız"}
+
+### Yetki ihlali: müşteri ters kayıt yapamaz — 403
+POST {{baseUrl}}/api/v1/ledger/entries/{{myEntries.response.body.$.items[0].entry_id}}/reverse
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"reason": "Yetkisiz"}
