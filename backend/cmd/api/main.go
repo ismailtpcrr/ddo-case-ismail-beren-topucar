@@ -26,6 +26,7 @@ import (
 	"parakopru/internal/platform/health"
 	"parakopru/internal/platform/ids"
 	"parakopru/internal/platform/observability"
+	"parakopru/internal/transfer"
 	"parakopru/migrations"
 )
 
@@ -73,6 +74,7 @@ func run() error {
 	customerSvc := customer.NewService(txm, idGen, recorder)
 	accountSvc := account.NewService(txm, customerSvc, idGen, clk, recorder)
 	ledgerSvc := ledger.NewService(txm, idGen, recorder, accountSvc)
+	transferSvc := transfer.NewService(txm, idGen, recorder, ledgerSvc, accountSvc)
 
 	// Temel seed: demo kullanıcılar, iç hesaplar, demo müşteri ve açılış bakiyeleri. Var olana dokunmaz; her açılışta
 	// güvenle çalışır.
@@ -91,6 +93,7 @@ func run() error {
 		Customers:      customer.NewHandler(customerSvc),
 		Accounts:       account.NewHandler(accountSvc),
 		Ledger:         ledger.NewHandler(ledgerSvc),
+		Transfers:      transfer.NewHandler(transferSvc),
 	})
 
 	srv := &http.Server{

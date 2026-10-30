@@ -302,6 +302,106 @@ paths:
             ya da aynı Idempotency-Key farklı bir istekle kullanılmış (`IDEMPOTENCY_KEY_REUSED`)
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
 
+  /api/v1/transfers:
+    post:
+      summary: Transfer başlat (banka içi havale)
+      description: |
+        İzin: `transfers:create` (müşteri yalnız kendi hesabından, operasyon uzmanı herhangi bir müşteri hesabından).
+        Alıcı IBAN ile verilir. Bu sürümde yalnız banka içi (INTERNAL) transfer vardır: bilinmeyen IBAN
+        `422 EXTERNAL_TRANSFER_UNAVAILABLE`, farklı para birimi `422 CURRENCY_MISMATCH` döner.
+        Transfer, defter kaydı ve denetim kaydı tek transaction'da yazılır. Aynı `Idempotency-Key` ile tekrar istek
+        aynı sonucu döndürür (`Idempotent-Replayed: true`). Yetersiz bakiye `422 INSUFFICIENT_FUNDS` döner; bu da bir
+        sonuçtur: `REJECTED` bir transfer kaydı yazılır (kimliği `X-Transfer-ID` başlığında) ve tekrar istek aynı reddi alır.
+      tags: [Transfer]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransferCreate" }
+            example: { from_account_id: 01a18de1-0448-7b9f-b5b8-129e6247d547, to_iban: TR450099900000000000000001, amount_minor: 25000, currency: TRY, description: Kira }
+      responses:
+        "201":
+          description: Transfer tamamlandı
+          headers:
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Transfer" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: |
+            `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`, `SAME_ACCOUNT`, `BENEFICIARY_NOT_FOUND`,
+            `EXTERNAL_TRANSFER_UNAVAILABLE`, `ACCOUNT_NOT_ACTIVE` ya da `IDEMPOTENCY_KEY_REUSED`
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    get:
+      summary: Transferler (en yeni önce, keyset sayfalı)
+      description: "İzin: `own_banking` ya da `ledger:read`. Müşteri yalnız gönderen ya da alıcı olduğu transferleri görür."
+      tags: [Transfer]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Transfer" } }
+                  next_cursor: { type: string, nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/transfers/{id}:
+    get:
+      summary: Transfer ve durum geçmişi
+      description: "İzin: `own_banking` ya da `ledger:read`. Müşteri yalnız gönderen ya da alıcı olduğu transferi görür (başkasınınki 403)."
+      tags: [Transfer]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Transfer
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Transfer"
+                  - type: object
+                    properties:
+                      events:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            from_state: { type: string, nullable: true }
+                            to_state: { type: string }
+                            note: { type: string, nullable: true }
+                            at: { type: string, format: date-time }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/invariants:
+    get:
+      summary: Defter değişmezlerini ölç (T-1 kanıtı)
+      description: |
+        İzin: `ledger:read`. Tek bir REPEATABLE READ snapshot'ında ölçer: her para biriminde Σ satırlar = 0,
+        her kayıt dengeli, her hesapta bakiye özeti = defterden türetilen bakiye. `held_minor` = Σ aktif provizyon
+        kontrolü kart adımında (E1) eklenecek; o zamana kadar `hold_mismatches` null.
+      tags: [Defter]
+      responses:
+        "200":
+          description: Ölçüm sonucu (`ok=false` ise bir değişmez bozulmuştur)
+          content: { application/json: { schema: { $ref: "#/components/schemas/Invariants" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /health:
     get:
       summary: Sağlık durumu (veritabanı bağlantısı dahil)
@@ -456,6 +556,53 @@ components:
           description: |
             Ters kaydın geçerlilik zamanı; verilmezse şimdi. Gelecekte ya da özgün kaydın geçerlilik zamanından
             önce olamaz. Geriye tarihli düzeltme için özgün kaydın zamanı verilebilir.
+
+    TransferCreate:
+      type: object
+      required: [from_account_id, to_iban, amount_minor, currency]
+      additionalProperties: false
+      properties:
+        from_account_id: { type: string, format: uuid }
+        to_iban: { type: string, minLength: 26, maxLength: 26 }
+        amount_minor: { type: integer, format: int64, minimum: 1 }
+        currency: { type: string, enum: [TRY, USD, EUR], description: Gönderen hesabın para birimiyle aynı olmalı }
+        description: { type: string, maxLength: 200 }
+
+    Transfer:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [INTERNAL, EFT, FAST] }
+        state: { type: string, enum: [CREATED, UNDER_REVIEW, PENDING_APPROVAL, RESERVED, SENT, UNKNOWN, COMPLETED, FAILED, REVERSED, REJECTED] }
+        from_account_id: { type: string, format: uuid }
+        to_account_id: { type: string, format: uuid, nullable: true }
+        to_iban: { type: string }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string, enum: [TRY, USD, EUR] }
+        description: { type: string }
+        requested_by: { type: string, format: uuid }
+        journal_entry_id: { type: string, format: uuid, nullable: true }
+        failure_code: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Invariants:
+      type: object
+      properties:
+        ok: { type: boolean }
+        checked_at: { type: string, format: date-time }
+        postings: { type: integer, format: int64 }
+        accounts: { type: integer, format: int64 }
+        totals_by_currency:
+          type: array
+          items:
+            type: object
+            properties:
+              currency: { type: string }
+              sum_minor: { type: integer, format: int64, description: "Her zaman 0 olmalı" }
+        unbalanced_entries: { type: integer, format: int64 }
+        summary_mismatches: { type: integer, format: int64 }
+        hold_mismatches: { type: integer, format: int64, nullable: true }
 
     AuditRecord:
       type: object

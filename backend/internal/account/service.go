@@ -174,3 +174,16 @@ func (s *Service) InternalAccountID(ctx context.Context, q db.DBTX, kind Kind, c
 	}
 	return internalAccountID(ctx, q, kind, c)
 }
+
+// ByIBAN IBAN'a göre hesabı getirir; yoksa ErrNotFound (yetki kontrolü yapmaz, transfer alıcısını çözmek içindir).
+func (s *Service) ByIBAN(ctx context.Context, q db.DBTX, iban string) (Account, error) {
+	if q == nil {
+		q = s.tx.DB()
+	}
+	return getAccountByIBAN(ctx, q, iban)
+}
+
+// OwnCustomerID müşteri rolündeki kullanıcının müşteri kimliğidir (nesne düzeyinde yetki için).
+func (s *Service) OwnCustomerID(ctx context.Context, userID uuid.UUID) (uuid.UUID, error) {
+	return s.customers.IDForUser(ctx, s.tx.DB(), userID)
+}

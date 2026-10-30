@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"parakopru/internal/account"
 	"parakopru/internal/money"
@@ -228,4 +230,25 @@ func (s *Service) AccountPostings(ctx context.Context, p auth.Principal, account
 		out.Items[i] = ap.ToResponse(acc.NormalSide)
 	}
 	return out, nil
+}
+
+// CheckInvariants defter değişmezlerini ölçer: her para biriminde Σ satırlar = 0, her kayıt dengeli,
+// her hesapta özet = defterden türetilen bakiye. Salt okunur, REPEATABLE READ snapshot'ında çalışır.
+func (s *Service) CheckInvariants(ctx context.Context) (Invariants, error) {
+	var inv Invariants
+	err := s.tx.WithTxOptions(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly},
+		func(ctx context.Context, tx db.DBTX) error {
+			var err error
+			inv, err = checkInvariants(ctx, tx)
+			return err
+		})
+	if err != nil {
+		return Invariants{}, err
+	}
+	inv.CheckedAt = time.Now().UTC()
+	inv.OK = inv.UnbalancedEntries == 0 && inv.SummaryMismatches == 0 && (inv.HoldMismatches == nil || *inv.HoldMismatches == 0)
+	for _, t := range inv.TotalsByCurrency {
+		inv.OK = inv.OK && t.SumMinor == 0
+	}
+	return inv, nil
 }

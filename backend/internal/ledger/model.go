@@ -271,3 +271,21 @@ type ReverseInput struct {
 	// (o andaki bakiye, bugün bilinenle düzeltilmiş görünür; o gün bilinen ise değişmez).
 	EffectiveAt *time.Time `json:"effective_at"`
 }
+
+// CurrencyTotal bir para biriminin bütün satırlarının toplamıdır; sağlıklı defterde 0'dır.
+type CurrencyTotal struct {
+	Currency money.Currency `json:"currency"`
+	SumMinor int64          `json:"sum_minor"`
+}
+
+// Invariants defter değişmezlerinin kontrol sonucudur (GET /admin/invariants).
+type Invariants struct {
+	OK                bool            `json:"ok"`
+	CheckedAt         time.Time       `json:"checked_at"`
+	Postings          int64           `json:"postings"`
+	Accounts          int64           `json:"accounts"`
+	TotalsByCurrency  []CurrencyTotal `json:"totals_by_currency"` // her biri 0 olmalı
+	UnbalancedEntries int64           `json:"unbalanced_entries"` // para birimi başına Σ ≠ 0 olan kayıt sayısı
+	SummaryMismatches int64           `json:"summary_mismatches"` // özeti defterden türetilen bakiyeden farklı hesap sayısı
+	HoldMismatches    *int64          `json:"hold_mismatches"`    // held_minor ≠ Σ aktif provizyon (E1'de gelecek; şimdilik null)
+}

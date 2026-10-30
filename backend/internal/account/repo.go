@@ -122,3 +122,7 @@ func listAccounts(ctx context.Context, q db.DBTX, customerID *uuid.UUID, req pag
 	}
 	return page.New(list, req.Limit, func(a Account) any { return cursor{ID: a.ID} })
 }
+
+func getAccountByIBAN(ctx context.Context, q db.DBTX, iban string) (Account, error) {
+	return scanAccount(q.QueryRow(ctx, selectAccount+` WHERE a.iban = $1`, iban))
+}

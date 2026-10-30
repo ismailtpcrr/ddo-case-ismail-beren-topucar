@@ -164,6 +164,20 @@ Her test paketi kendi konteynerini açar, migrasyonları uygular ve iş bitince 
 | Ters kayıt yetkisi | Müşteri, risk, uyum ya da denetçi token'ıyla ters kayıt | `403 FORBIDDEN` (yalnız operasyon) |
 | Defterin tamamı dengede | `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT currency, sum(amount_minor) FROM postings GROUP BY 1"'` | Her para biriminde `0` |
 
+## Transfer (banka içi) ve değişmezler
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Havale | [requests.http](requests.http) "Banka içi havale" (müşteri token'ı) | `201`, `state=COMPLETED`; gönderenden düşer, alıcıya geçer; `GET /transfers/{id}` olaylarda `CREATED → COMPLETED`; defter kaydı transfer ID'sine bağlı; denetim kaydına `transfer.create` |
+| Idempotency-Key | Aynı isteği aynı anahtarla tekrarla | Aynı yanıt, `Idempotent-Replayed: true`; para bir kez hareket eder. Eşzamanlı 20 istek: `go test -run TestConcurrentRequestsWithSameKey -v ./internal/transfer/` |
+| Anahtar yok / farklı gövde | Anahtarsız; aynı anahtar farklı tutar | `400 IDEMPOTENCY_KEY_REQUIRED`; `422 IDEMPOTENCY_KEY_REUSED` |
+| Yetersiz bakiye | Bakiyeden büyük tutar | `422 INSUFFICIENT_FUNDS`, `X-Transfer-ID` başlığı; `REJECTED` kaydı yazılır, bakiye değişmez; tekrar istek aynı reddi döndürür (`TestInsufficientFundsIsRecordedAsRejected`) |
+| İş kuralları | `go test -run TestBusinessRules -v ./internal/transfer/` | Başkasının hesabı 403; iç hesap, para birimi uyumsuzluğu, kendine gönderme, bozuk IBAN, bilinmeyen (dış) IBAN reddedilir |
+| Durum makinesi | `go test -run TestStateMachine ./internal/transfer/` | Geçerli geçişler kabul, geçersizler (ör. `COMPLETED → CREATED`) reddedilir |
+| Nesne düzeyi okuma | `go test -run TestObjectLevelReadAccess ./internal/transfer/` | Gönderen ve alıcı transferi görür, üçüncü kişi `403` |
+| Değişmezler ucu | Operasyon/denetçi token'ıyla `GET /api/v1/admin/invariants` | `200`, `ok=true`, her para biriminde `sum_minor=0`, `summary_mismatches=0`. Müşteri token'ıyla `403` |
+| Ölçüm bozulmayı yakalar | `go test -run TestInvariantsDetectCorruption ./internal/transfer/` | Bakiye özeti elle bozulunca `ok=false`, `summary_mismatches=1` |
+
 ## Doğrulama kimlikleri (F-1 … F-8, T-1 … T-7)
 
 Her kimlik, ilgili özellik geliştirildiğinde bu tabloya ve `make verify`'a eklenecek.

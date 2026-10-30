@@ -15,6 +15,7 @@ import (
 	"parakopru/internal/platform/health"
 	"parakopru/internal/platform/httpx"
 	"parakopru/internal/platform/ids"
+	"parakopru/internal/transfer"
 )
 
 const healthTimeout = 2 * time.Second
@@ -31,6 +32,7 @@ type routerDeps struct {
 	Customers      *customer.Handler
 	Accounts       *account.Handler
 	Ledger         *ledger.Handler
+	Transfers      *transfer.Handler
 }
 
 // newRouter tüm HTTP uçlarını ve ortak middleware zincirini kurar.
@@ -82,6 +84,14 @@ func newRouter(d routerDeps) http.Handler {
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts/{id}/entries", d.Ledger.AccountEntries)
 			r.With(auth.Require(auth.PermLedgerRead)).Get("/ledger/entries/{id}", d.Ledger.Entry)
 			r.With(auth.Require(auth.PermLedgerReverse)).Post("/ledger/entries/{id}/reverse", d.Ledger.Reverse)
+
+			// Defter değişmezleri: Σ satırlar = 0, özet = türetilmiş bakiye (T-1 kanıtı; verify ve kaos betikleri kullanır).
+			r.With(auth.Require(auth.PermLedgerRead)).Get("/admin/invariants", d.Ledger.Invariants)
+
+			// Transferler (F-3). Başlatma Idempotency-Key ister (handler'da); müşteri yalnız kendi hesabından gönderir (serviste).
+			r.With(auth.Require(auth.PermTransfersCreate)).Post("/transfers", d.Transfers.Create)
+			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/transfers", d.Transfers.List)
+			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/transfers/{id}", d.Transfers.Get)
 		})
 	})
 

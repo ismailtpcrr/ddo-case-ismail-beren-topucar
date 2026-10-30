@@ -258,3 +258,33 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
     hacimde iç hesap özeti parçalara bölünmelidir (bilinen sınırlama).
   - `ledger:reverse` PLAN.md §5.10 matrisinde yok; `TestPermissionMatrixMatchesPlan` bu satırla birlikte doğruluyor.
   - `journal_entries`'te zaman kopyalarının yabancı anahtarı için ek bir benzersiz dizin var.
+
+## K-14 İç transfer: ret de bir sonuçtur, durum makinesi baştan tam, değişmezler REPEATABLE READ'de
+
+*(PLAN.md §14 madde 9 ve 11'in ilk kısmı; B4 adımı.)*
+
+- **Bağlam:** proje.md Görev 2: aynı `Idempotency-Key` aynı sonucu döndürmeli, durum makinesi geçersiz geçişi reddetmeli.
+  Görev 1: "tüm hesapların toplamı değişmemeli" kanıtı API'den de alınabilmeli (`/admin/invariants`).
+  PLAN.md §5.2: yetersiz bakiye `REJECTED` transfer kaydı olur ve tekrar istek aynı reddi döndürür; §7 ise iş kuralı
+  reddini 422 sayıyor.
+- **Karar:**
+  - **Ret = kayıtlı sonuç:** yetersiz bakiyede `REJECTED` transfer ve olay satırı yazılır; servis bunu *başarılı sonuç* olarak
+    döndürür (idempotency anahtarıyla saklanır), handler 422 `INSUFFICIENT_FUNDS` yazar ve transfer kimliğini
+    `X-Transfer-ID` başlığında verir. Böylece hem ret kaydı kalıcıdır hem istemci hata biçimini alır. (Idempotency
+    katmanının kendi 4xx saklaması, kaydı savepoint'e geri aldığı için bu amaca yetmez.)
+  - **Durum makinesi baştan tam:** `transitions` tablosu PLAN.md §5.2'nin tamamını içerir (dış banka durumları dahil);
+    iç transfer yalnız `CREATED → COMPLETED/REJECTED` kullanır. Her geçiş koşullu `UPDATE … WHERE state = $beklenen` +
+    olay satırı; tabloda olmayan geçiş `409 INVALID_STATE_TRANSITION` olur ve loglanır. `transfer_events` eklemeli-yalnızdır.
+  - **Alıcı IBAN ile verilir.** Bilinmeyen IBAN dış banka transferidir; C2'ye kadar `422 EXTERNAL_TRANSFER_UNAVAILABLE`.
+    Farklı para birimi G1'e kadar `422 CURRENCY_MISMATCH`. (Sessizce yanlış işlem yapmaktansa açıkça reddetmek.)
+  - **Yetki:** başlatma `transfers:create` (müşteri yalnız kendi hesabından; operasyon uzmanı herhangi bir müşteri
+    hesabından). Okuma: gönderen ya da alıcı müşteri, `ledger:read` sahibi roller.
+  - **`/admin/invariants`:** `ledger:read` izniyle (yeni izin yok). Ölçümler tek bir `REPEATABLE READ` salt okunur
+    transaction'da yapılır; eşzamanlı yazma sürerken bile sayılar aynı anın görüntüsüdür. Provizyon kontrolü
+    (`held_minor` = Σ aktif blok) kart tablosu gelince (E1) eklenir; o zamana kadar alan `null`.
+- **Değerlendirilen alternatifler:**
+  - Reddi yalnız 422 olarak saklamak (transfer kaydı yazmadan): "reddedilen işlemin izi" kaybolur, operasyon ekranında görünmez.
+  - Reddi 201 ile `state=REJECTED` döndürmek: istemci her başarılı görünen yanıtta durumu ayrıca kontrol etmek zorunda kalır.
+  - Durum makinesini adım adım büyütmek: her adımda tabloyu değiştirmek geçmişi ve testi dağıtır.
+- **Sonuçlar / ödünleşimler:** Değişmezler ucu bütün `postings` tablosunu tarar (20.000 müşteri ölçeğinde saniyenin altı,
+  günlük 200.000 işlemde tablo büyüdükçe artar); bu bir yönetim/doğrulama ucudur, sıcak yol değildir.

@@ -185,3 +185,43 @@ func listAccountPostings(ctx context.Context, q db.DBTX, accountID uuid.UUID, re
 		return postingCursor{EffectiveAt: p.EffectiveAt, ID: p.ID}
 	})
 }
+
+// checkInvariants defter değişmezlerini tek bir okuma snapshot'ında (REPEATABLE READ) ölçer; eşzamanlı yazma
+// sürerken bile sayılar birbiriyle tutarlıdır.
+func checkInvariants(ctx context.Context, q db.DBTX) (Invariants, error) {
+	var inv Invariants
+	rows, err := q.Query(ctx, `SELECT currency, sum(amount_minor)::bigint, count(*) FROM postings GROUP BY currency ORDER BY currency`)
+	if err != nil {
+		return inv, fmt.Errorf("ledger: invariants totals: %w", err)
+	}
+	for rows.Next() {
+		var t CurrencyTotal
+		var n int64
+		if err := rows.Scan(&t.Currency, &t.SumMinor, &n); err != nil {
+			rows.Close()
+			return inv, fmt.Errorf("ledger: invariants scan: %w", err)
+		}
+		inv.TotalsByCurrency = append(inv.TotalsByCurrency, t)
+		inv.Postings += n
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return inv, fmt.Errorf("ledger: invariants totals: %w", err)
+	}
+	if inv.TotalsByCurrency == nil {
+		inv.TotalsByCurrency = []CurrencyTotal{}
+	}
+	err = q.QueryRow(ctx, `
+		SELECT (SELECT count(*) FROM (SELECT 1 FROM postings GROUP BY entry_id, currency HAVING sum(amount_minor) <> 0) u),
+		       (SELECT count(*) FROM account_balances),
+		       (SELECT count(*)
+		          FROM account_balances b
+		          JOIN accounts a ON a.id = b.account_id
+		          LEFT JOIN (SELECT account_id, sum(amount_minor) AS s FROM postings GROUP BY account_id) p ON p.account_id = b.account_id
+		         WHERE b.balance_minor <> coalesce(p.s, 0) * CASE a.normal_side WHEN 'CREDIT' THEN -1 ELSE 1 END)`).
+		Scan(&inv.UnbalancedEntries, &inv.Accounts, &inv.SummaryMismatches)
+	if err != nil {
+		return inv, fmt.Errorf("ledger: invariants: %w", err)
+	}
+	return inv, nil
+}

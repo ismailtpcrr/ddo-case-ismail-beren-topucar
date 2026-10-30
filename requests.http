@@ -181,3 +181,71 @@ Content-Type: application/json
 Idempotency-Key: {{$guid}}
 
 {"reason": "Yetkisiz"}
+
+# ---------------------------------------------------------------------------
+# Transfer (F-3) ve defter değişmezleri (T-1)
+# ---------------------------------------------------------------------------
+
+### Yeni müşteri hesabı (alıcı) — IBAN'ını bir sonraki isteklerde kullanır
+# @name payee
+POST {{baseUrl}}/api/v1/accounts
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+
+{"customer_id": "{{newCustomer.response.body.id}}", "kind": "CHECKING", "currency": "TRY"}
+
+### Banka içi havale (demo müşteri → alıcı) — 201 COMPLETED; aynı Idempotency-Key ile tekrar → aynı yanıt + Idempotent-Replayed: true
+# @name sendMoney
+POST {{baseUrl}}/api/v1/transfers
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: havale-demo-1
+
+{"from_account_id": "{{myAccounts.response.body.$.items[0].id}}", "to_iban": "{{payee.response.body.iban}}", "amount_minor": 25000, "currency": "TRY", "description": "Kira"}
+
+### Yetersiz bakiye — 422 INSUFFICIENT_FUNDS (REJECTED transfer kaydı yazılır, X-Transfer-ID başlığında)
+POST {{baseUrl}}/api/v1/transfers
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: havale-yetersiz-1
+
+{"from_account_id": "{{myAccounts.response.body.$.items[0].id}}", "to_iban": "{{payee.response.body.iban}}", "amount_minor": 99999999999, "currency": "TRY"}
+
+### Idempotency-Key olmadan — 400 IDEMPOTENCY_KEY_REQUIRED
+POST {{baseUrl}}/api/v1/transfers
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+
+{"from_account_id": "{{myAccounts.response.body.$.items[0].id}}", "to_iban": "{{payee.response.body.iban}}", "amount_minor": 100, "currency": "TRY"}
+
+### Aynı anahtar, farklı tutar — 422 IDEMPOTENCY_KEY_REUSED
+POST {{baseUrl}}/api/v1/transfers
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: havale-demo-1
+
+{"from_account_id": "{{myAccounts.response.body.$.items[0].id}}", "to_iban": "{{payee.response.body.iban}}", "amount_minor": 99, "currency": "TRY"}
+
+### Başkasının hesabından gönderme — 403 (alıcının hesabı demo müşteriye ait değil)
+POST {{baseUrl}}/api/v1/transfers
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"from_account_id": "{{payee.response.body.id}}", "to_iban": "{{payee.response.body.iban}}", "amount_minor": 100, "currency": "TRY"}
+
+### Transfer ve durum geçmişi (CREATED → COMPLETED)
+GET {{baseUrl}}/api/v1/transfers/{{sendMoney.response.body.id}}
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Transferlerim (müşteri yalnız kendininkini görür)
+GET {{baseUrl}}/api/v1/transfers?limit=20
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Defter değişmezleri (denetçi) — ok=true, her para biriminde sum_minor=0, summary_mismatches=0
+GET {{baseUrl}}/api/v1/admin/invariants
+Authorization: Bearer {{loginOps.response.body.access_token}}
+
+### Yetki ihlali: müşteri değişmezleri göremez — 403
+GET {{baseUrl}}/api/v1/admin/invariants
+Authorization: Bearer {{loginMusteri.response.body.access_token}}

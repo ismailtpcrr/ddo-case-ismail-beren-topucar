@@ -91,3 +91,13 @@ func (h *Handler) Reverse(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.WriteJSON(w, http.StatusCreated, res)
 }
+
+// Invariants: GET /api/v1/admin/invariants (izin: ledger:read). Defter değişmezlerini ölçer (T-1 kanıtı).
+func (h *Handler) Invariants(w http.ResponseWriter, r *http.Request) {
+	inv, err := h.svc.CheckInvariants(r.Context())
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, inv)
+}

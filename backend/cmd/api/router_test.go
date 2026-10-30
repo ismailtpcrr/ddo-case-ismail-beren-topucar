@@ -26,6 +26,7 @@ import (
 	"parakopru/internal/platform/httpx"
 	"parakopru/internal/platform/ids"
 	"parakopru/internal/platform/observability"
+	"parakopru/internal/transfer"
 )
 
 const testSecret = "router-test-secret-0123456789-0123456789"
@@ -65,6 +66,11 @@ func TestCustomerAndAccountWritePermissions(t *testing.T) {
 		{auth.RoleAuditor, http.MethodPost, "/api/v1/ledger/entries/" + uuid.NewString() + "/reverse"},
 		{auth.RoleCompliance, http.MethodPost, "/api/v1/ledger/entries/" + uuid.NewString() + "/reverse"},
 		{auth.RoleRiskAnalyst, http.MethodPost, "/api/v1/ledger/entries/" + uuid.NewString() + "/reverse"},
+		// Transfer: başlatma yalnız müşteri ve operasyon; değişmezler ledger:read ister.
+		{auth.RoleAuditor, http.MethodPost, "/api/v1/transfers"},
+		{auth.RoleSystem, http.MethodPost, "/api/v1/transfers"},
+		{auth.RoleCustomer, http.MethodGet, "/api/v1/admin/invariants"},
+		{auth.RoleSystem, http.MethodGet, "/api/v1/transfers"},
 	} {
 		token, _, err := tokens.IssueAccess(uuid.New(), tc.role)
 		require.NoError(t, err)
@@ -107,6 +113,7 @@ func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) 
 		Customers:      customer.NewHandler(nil),
 		Accounts:       account.NewHandler(nil),
 		Ledger:         ledger.NewHandler(nil),
+		Transfers:      transfer.NewHandler(nil),
 	})
 	if extra != nil {
 		extra(h.(chi.Router))
