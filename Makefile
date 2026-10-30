@@ -9,7 +9,7 @@ BACKEND := backend
 GOLANGCI_LINT_VERSION := v2.15.0
 
 .DEFAULT_GOAL := help
-.PHONY: help env up down logs ps reset-demo test test-race cover lint fmt
+.PHONY: help env up down logs ps reset-demo verify test test-race cover lint fmt
 
 help: ## Hedefleri listele
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | \
@@ -35,6 +35,11 @@ ps: ## Servislerin durumunu göster
 reset-demo: env ## Tüm verileri sil ve sistemi ilk seed haliyle yeniden başlat
 	$(COMPOSE) down --volumes --remove-orphans
 	$(COMPOSE) up --build --detach --wait
+
+## --- Doğrulama --------------------------------------------------------------
+
+verify: env ## Ayaktaki sistemde her özelliği uçtan uca dene; PASS/FAIL tablosu (sistem kapalıysa başlatır)
+	$(COMPOSE) --profile verify run --rm --build verify
 
 ## --- Geliştirme ------------------------------------------------------------
 

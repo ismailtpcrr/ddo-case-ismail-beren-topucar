@@ -87,6 +87,14 @@ func (c Worker) Validate() error {
 	return nil
 }
 
+// Verify, `make verify` doğrulamasının ayarlarıdır.
+type Verify struct {
+	APIURL       string        `env:"VERIFY_API_URL"      envDefault:"http://api:8080"`
+	FrontendURL  string        `env:"VERIFY_FRONTEND_URL" envDefault:"http://frontend:8080"`
+	DemoPassword string        `env:"DEMO_PASSWORD,required,notEmpty"`
+	Timeout      time.Duration `env:"VERIFY_TIMEOUT"      envDefault:"14m"` // şartname: en fazla 15 dk
+}
+
 // validator, Load'un okuduktan sonra çağırdığı isteğe bağlı kontrol arayüzüdür.
 type validator interface{ Validate() error }
 

@@ -9,6 +9,32 @@ Bu dosya proje.md §10'un istediği bölümleri içerir:
 
 Bölümler, ilgili özellik geliştirildikçe doldurulur.
 
+## Hızlı doğrulama: `make verify`
+
+```bash
+make verify          # = docker compose --profile verify run --rm --build verify
+```
+
+Sistem kapalıysa önce onu başlatır, sonra compose ağı içinden gerçek HTTP istekleriyle her doğrulama kimliğini dener ve
+bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır. Şu anki süre yaklaşık 20 sn (sınır: 15 dk).
+
+| Kimlik | Ne denenir | PASS koşulu |
+|---|---|---|
+| `HEALTH` | `GET /health` | `200`, `status=ok`, `database=ok`, yanıtta `X-Request-ID` |
+| `AUTH-1` | Altı demo hesabın her biriyle giriş ve `/me` | Hepsi `200`; `/me` doğru rolü döndürür |
+| `AUTH-2` | Yanlış parola; kayıtlı olmayan e-posta | İkisi de `401 INVALID_CREDENTIALS`, yanıtlar birebir aynı, oturum çerezi yok |
+| `AUTH-3` | Her rolle `GET /api/v1/audit-log` (yetkisiz rol) | Uyum ve denetçi `200`; müşteri, operasyon, risk, sistem `403 FORBIDDEN` |
+| `AUTH-4` | Yetki ihlali: token'sız istek; uydurma token; rolü `AUDITOR` yapılmış müşteri token'ı (imza bozuk); refresh token'ı access yerine kullanmak; çıkıştan sonra eski token'la oturum yenileme | Hepsi `401` |
+| `UI` | Arayüz sayfası; arayüz kökeninden (nginx) `GET /api/v1/me` | Sayfa `200` ve ParaKöprü başlığı; nginx üzerinden API `200` |
+| `F-1` … `F-8`, `T-1` … `T-7` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
+
+Yerelde (compose dışında) çalıştırmak için:
+
+```bash
+cd backend
+VERIFY_API_URL=http://localhost:8080 VERIFY_FRONTEND_URL=http://localhost:3000 DEMO_PASSWORD=ParaKopru.2026 go run ./cmd/verify
+```
+
 ## Demo hesaplar
 
 Her rol için bir hesap, api ilk açıldığında otomatik oluşturulur. Hepsinin parolası `.env`'deki

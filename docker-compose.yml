@@ -96,5 +96,31 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  # Uçtan uca doğrulama (proje.md §10): `make verify` ile tek seferlik çalışır, sürekli açık kalmaz.
+  # Ayaktaki sisteme compose ağı içinden bağlanır; her kimlik için PASS/FAIL tablosu basar,
+  # bir FAIL bile varsa çıkış kodu 1 olur.
+  verify:
+    profiles: ["verify"]
+    build: ./backend
+    image: parakopru-backend:local
+    command: ["/app/verify"]
+    environment:
+      VERIFY_API_URL: http://api:8080
+      VERIFY_FRONTEND_URL: http://frontend:8080
+      DEMO_PASSWORD: ${DEMO_PASSWORD:?.env eksik}
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    # Tek seferlik bir iş olsa da "her servis healthcheck içerir" kuralına uyar: API'ye erişebiliyor mu?
+    healthcheck:
+      test: ["CMD", "/app/healthcheck", "http://api:8080/health"]
+      interval: 5s
+      timeout: 4s
+      retries: 3
+
 volumes:
   pgdata:

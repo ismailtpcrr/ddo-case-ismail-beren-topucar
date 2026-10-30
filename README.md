@@ -25,6 +25,7 @@ Tüm servisler sağlıklı olduğunda:
 | API | http://localhost:8080 (sağlık: `/health`) |
 | PostgreSQL | Host'a açık değil; yalnız compose ağından erişilir |
 
+Her özelliği çalışan sistem üzerinde uçtan uca denemek için `make verify` (ayrıntılar: [TESTING.md](TESTING.md)).
 Sık kullanılan komutlar için `make help`.
 
 ## Demo hesaplar

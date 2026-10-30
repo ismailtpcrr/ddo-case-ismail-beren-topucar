@@ -532,7 +532,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [x] A5 `build`: Go ve frontend Dockerfile'ları, `healthcheck` binary'si, compose (her serviste healthcheck, tüm bağımlılıklar `service_healthy`, root olmayan kullanıcılar), boş frontend sayfası
 - [x] A6 `feat(auth)`: `users`, 6 rol, argon2id, JWT access + refresh çerezi, izin tablosu ve `Require` middleware, demo hesap seed'i
 - [x] A7 `feat(platform)`: append-only `audit_log`, `idempotency_keys`, `jobs` kuyruğu + `worker` iskeleti
-- [ ] A8 `test(verify)`: `cmd/verify` iskeleti + PASS/FAIL tablosu (health, yanlış parola, yetkisiz rol, yetki ihlali), `make verify`
+- [x] A8 `test(verify)`: `cmd/verify` iskeleti + PASS/FAIL tablosu (health, yanlış parola, yetkisiz rol, yetki ihlali), `make verify`
 
 ### B — Para ve defter (T-1, F-1, F-2)
 - [ ] B1 `feat(money)`: `Amount`, para birimi, banker's rounding + birim/property testleri

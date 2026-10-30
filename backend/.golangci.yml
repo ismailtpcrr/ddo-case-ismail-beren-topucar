@@ -14,8 +14,8 @@ linters:
     - unconvert     # gereksiz tip dönüşümü
   exclusions:
     rules:
-      # Testlerde ve test yardımcı paketlerinde güvenlik uyarıları (ör. sabit test parolası) anlamsız.
-      - path: (_test\.go|/dbtest/)
+      # Testlerde, test yardımcılarında ve make verify aracında güvenlik uyarıları (ör. bilerek yanlış girilen test parolası) anlamsız.
+      - path: (_test\.go|/dbtest/|internal/verify/)
         linters: [gosec]
 
 formatters:

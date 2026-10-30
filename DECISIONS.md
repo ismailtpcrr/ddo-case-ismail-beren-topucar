@@ -143,3 +143,21 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   ama dış servis çağrısı sürerken bir veritabanı bağlantısı ve kilit açık kalır; handler kendi transaction'larını açamaz.
 - **Sonuçlar / ödünleşimler:** İşler "en az bir kez" çalışır: worker işi bitirip sonucu yazamadan çökerse iş tekrar çalışır.
   Bu yüzden handler'lar tekrar çalıştırılmaya dayanıklı yazılır (ör. dış bankaya hep aynı referansla gidilir).
+
+## K-10 `make verify`: dışarıdan, gerçek isteklerle doğrulama
+
+- **Bağlam:** proje.md §10: `make verify` ayaktaki ve seed edilmiş sistemde her özelliği ve zorlu görevi API (ve mümkünse
+  arayüz) üzerinden denemeli; kimlik başına PASS/FAIL tablosu basmalı; hata varsa sıfırdan farklı çıkış kodu dönmeli; ≤ 15 dk.
+- **Karar:**
+  - Doğrulama ayrı bir Go programıdır (`cmd/verify`). Compose'da `verify` profiliyle tek seferlik çalışır ve sisteme
+    compose ağı içinden, bir kullanıcının yapacağı gibi HTTP ile bağlanır. Veritabanına doğrudan bakmaz.
+  - Şartnamenin ek istediği senaryolar ayrı kimliklerle tabloda yer alır: `HEALTH`, `AUTH-1…4`, `UI`.
+  - Arayüz kontrolü, sayfanın açılmasının yanında nginx üzerinden API'ye ulaşılabildiğini de doğrular.
+  - **Henüz uygulanmamış bir kimlik FAIL sayılır** ve hangi plan adımında geleceği yazılır.
+- **Değerlendirilen alternatifler:**
+  - Bash + curl betiği: tablo, JSON ayrıştırma ve eşzamanlılık (T-1'deki 10.000 transfer) için zayıf kalır.
+  - Go entegrasyon testlerini (`go test`) verify olarak kullanmak: onlar sistemi içeriden test eder; şartname ise
+    "ayağa kalkmış sistem üzerinde" uçtan uca deneme istiyor.
+  - Uygulanmamış kimlikleri SKIP göstermek: tablo yeşil görünür ama sistemin eksik olduğunu gizler.
+- **Sonuçlar / ödünleşimler:** Bütün kimlikler uygulanana kadar `make verify` sıfırdan farklı kodla biter. Bu bilinçli bir
+  tercih: tablo her an sistemin gerçek durumunu gösterir.
