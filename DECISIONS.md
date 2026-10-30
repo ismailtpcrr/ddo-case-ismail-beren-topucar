@@ -288,3 +288,17 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   - Durum makinesini adım adım büyütmek: her adımda tabloyu değiştirmek geçmişi ve testi dağıtır.
 - **Sonuçlar / ödünleşimler:** Değişmezler ucu bütün `postings` tablosunu tarar (20.000 müşteri ölçeğinde saniyenin altı,
   günlük 200.000 işlemde tablo büyüdükçe artar); bu bir yönetim/doğrulama ucudur, sıcak yol değildir.
+
+## K-15 Transaction içinde havuzdan ikinci bağlantı alınmaz
+
+*(B5 adımında 10.000 eşzamanlı transfer testi bir hatayı ortaya çıkardı.)*
+
+- **Bağlam:** Transfer servisi, transaction açıkken gönderen hesabı `accounts.Get` ile okuyordu; o da havuzdan *ayrı* bir
+  bağlantı alıyordu. 64 eşzamanlı istek (havuz: 50 bağlantı) hepsi bir bağlantıyı transaction'da tutarken ikinci
+  bağlantıyı bekleyince hiçbiri ilerlemedi: veritabanında değil, uygulama havuzunda kilitlenme (test 10 dk'da bitmedi).
+  Birim testler ve 20 istekli testler bunu göstermemişti.
+- **Karar:** Transaction içinde çalışan her okuma o transaction'ın bağlantısını kullanır (`account.Service.GetTx(q, …)`).
+  Havuzdan okuyan `Get` yalnız transaction dışındaki çağrılar içindir.
+- **Değerlendirilen alternatifler:** Havuzu büyütmek (sorunu ertelemek, eşzamanlılık havuzdan büyükse yine kilitlenir);
+  transaction'dan önce hesabı okumak (okuma ile yazma arasında hesap değişebilir ve iki kontrol ayrışır).
+- **Sonuçlar:** Kural: transaction başlatan servis, çağırdığı her şeye `tx`'i geçirir. Yük testi (L3) bu sınıf hataya karşı da koruma sağlar.

@@ -111,14 +111,20 @@ func (s *Service) validateMaturity(in OpenInput) (*time.Time, error) {
 // Get hesabı getirir. Müşteri yalnız kendi hesabını görebilir; tüm hesapları okuma izni (ledger:read) olan roller
 // her hesabı görür.
 func (s *Service) Get(ctx context.Context, p auth.Principal, id uuid.UUID) (Account, error) {
-	a, err := getAccount(ctx, s.tx.DB(), id)
+	return s.GetTx(ctx, s.tx.DB(), p, id)
+}
+
+// GetTx Get ile aynıdır ama verilen transaction'ı kullanır. Transaction içindeki bir servis havuzdan ikinci bir
+// bağlantı almamalıdır: eşzamanlı yük havuzu doldurursa transaction'lar birbirini bekleyip kilitlenir.
+func (s *Service) GetTx(ctx context.Context, q db.DBTX, p auth.Principal, id uuid.UUID) (Account, error) {
+	a, err := getAccount(ctx, q, id)
 	if err != nil {
 		return Account{}, err
 	}
 	if p.Role.Has(auth.PermLedgerRead) {
 		return a, nil
 	}
-	own, err := s.customers.IDForUser(ctx, s.tx.DB(), p.UserID)
+	own, err := s.customers.IDForUser(ctx, q, p.UserID)
 	if err != nil {
 		return Account{}, err
 	}

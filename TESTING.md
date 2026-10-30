@@ -178,6 +178,22 @@ Her test paketi kendi konteynerini açar, migrasyonları uygular ve iş bitince 
 | Değişmezler ucu | Operasyon/denetçi token'ıyla `GET /api/v1/admin/invariants` | `200`, `ok=true`, her para biriminde `sum_minor=0`, `summary_mismatches=0`. Müşteri token'ıyla `403` |
 | Ölçüm bozulmayı yakalar | `go test -run TestInvariantsDetectCorruption ./internal/transfer/` | Bakiye özeti elle bozulunca `ok=false`, `summary_mismatches=1` |
 
+## T-1 kanıtı: para korunumu (10.000 eşzamanlı transfer)
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| 10.000 eşzamanlı transfer | `cd backend && go test -race -count=1 -v -run TestConservationUnder10000ConcurrentTransfers ./internal/transfer/` | PASS. 40 hesap, 64 eşzamanlı işçi, rastgele (ters yönlü dahil) çiftler, her biri yeni Idempotency-Key ile tam servis yolundan. Doğrulananlar: sunucunun deadlock sayacı (`pg_stat_database.deadlocks`) artmaz; her transfer COMPLETED ya da REJECTED; her hesapta bakiye = açılış − giden + gelen; hiçbir hesap eksiye düşmez; toplam para değişmez; `CheckInvariants` `ok` |
+| Property testi | `go test -race -count=1 -v -run TestPropertyRandomTransferSequencesConserveMoney ./internal/transfer/` | 100 rastgele işlem dizisi (rapid): model bakiyesi = özet = defterden türetilen bakiye; transfer ancak bakiye yetiyorsa tamamlanır; toplam değişmez |
+
+Örnek çıktı (macOS, Docker'da PostgreSQL 16, `-race` açık):
+
+```
+conservation_test.go:127: 10000 transfer, 64 eşzamanlı işçi: 9115 tamamlandı, 885 bakiye yetersiz → REJECTED; 9.494s (1053 transfer/sn); deadlock: 0; toplam 20000000 → 20000000
+--- PASS: TestConservationUnder10000ConcurrentTransfers (9.80s)
+conservation_test.go:143: [rapid] OK, passed 100 tests (4.521866208s)
+--- PASS: TestPropertyRandomTransferSequencesConserveMoney (4.54s)
+```
+
 ## Doğrulama kimlikleri (F-1 … F-8, T-1 … T-7)
 
 Her kimlik, ilgili özellik geliştirildiğinde bu tabloya ve `make verify`'a eklenecek.

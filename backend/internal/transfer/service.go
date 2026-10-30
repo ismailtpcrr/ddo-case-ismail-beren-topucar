@@ -32,6 +32,7 @@ type LedgerPoster interface {
 // Accounts transfer modülünün hesap modülünden istedikleridir.
 type Accounts interface {
 	Get(ctx context.Context, p auth.Principal, id uuid.UUID) (account.Account, error)
+	GetTx(ctx context.Context, q db.DBTX, p auth.Principal, id uuid.UUID) (account.Account, error)
 	ByIBAN(ctx context.Context, q db.DBTX, iban string) (account.Account, error)
 	OwnCustomerID(ctx context.Context, userID uuid.UUID) (uuid.UUID, error)
 }
@@ -106,7 +107,7 @@ func (s *Service) create(ctx context.Context, tx db.DBTX, p auth.Principal, in C
 // resolve gönderen ve alıcı hesabı çözer, isteğin iş kurallarını kontrol eder.
 func (s *Service) resolve(ctx context.Context, tx db.DBTX, p auth.Principal, in CreateInput) (from, to account.Account, err error) {
 	// Müşteri yalnız kendi hesabından gönderebilir (başkasınınki 403).
-	if from, err = s.accounts.Get(ctx, p, in.FromAccountID); err != nil {
+	if from, err = s.accounts.GetTx(ctx, tx, p, in.FromAccountID); err != nil {
 		return
 	}
 	if !from.Kind.IsCustomer() {
