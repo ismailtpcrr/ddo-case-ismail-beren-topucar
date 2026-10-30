@@ -28,6 +28,7 @@ import (
 	"parakopru/internal/platform/health"
 	"parakopru/internal/platform/httpx"
 	"parakopru/internal/platform/ids"
+	"parakopru/internal/platform/metrics"
 	"parakopru/internal/platform/observability"
 	"parakopru/internal/transfer"
 )
@@ -132,6 +133,7 @@ func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) 
 		IDs:            &ids.Sequence{},
 		RequestTimeout: 50 * time.Millisecond,
 		HealthChecks:   checks,
+		Metrics:        metrics.New(),
 		Tokens:         auth.NewTokens(testSecret, time.Minute, time.Hour, clock.System{}),
 		Auth:           auth.NewHandler(nil, false), // bu testler servis gerektiren uçlara ulaşmaz
 		Audit:          audit.NewHandler(nil),
@@ -265,4 +267,27 @@ func TestAccessLogLine(t *testing.T) {
 	require.NotEmpty(t, line["request_id"])
 	require.Contains(t, line, "duration_ms")
 	require.NotContains(t, s.logs.String(), "gizli-token")
+}
+
+// /openapi.yaml, /docs ve /metrics girişsiz çalışır (DECISIONS.md K-3); metrikler yol desenini etiket olarak kullanır.
+func TestDocsAndMetricsEndpoints(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+
+	rec := s.do(t, http.MethodGet, "/openapi.yaml", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "openapi: 3.0.3")
+	require.Contains(t, rec.Body.String(), "/api/v1/transfers")
+
+	rec = s.do(t, http.MethodGet, "/docs", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "/openapi.yaml")
+
+	// Kimlik doğrulamasız korunan uç 401 olur; bu istek de metrikte yol deseniyle sayılır (ham kimlik değil).
+	s.do(t, http.MethodGet, "/api/v1/accounts/"+uuid.NewString(), nil)
+	rec = s.do(t, http.MethodGet, "/metrics", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, `parakopru_http_requests_total{method="GET",route="/api/v1/accounts/{id}",status="401"} 1`)
+	require.Contains(t, body, "parakopru_http_request_duration_seconds_bucket")
+	require.Contains(t, body, "go_goroutines")
 }

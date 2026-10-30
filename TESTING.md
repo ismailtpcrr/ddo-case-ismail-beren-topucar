@@ -112,6 +112,8 @@ Sistem `docker compose up --build` ile ayaktayken:
 |---|---|---|
 | Sağlık kontrolü | `curl -i http://localhost:8080/health` | `200` · `{"status":"ok","checks":{"database":"ok"}}` |
 | Veritabanı erişilemezken sağlık | `docker compose pause postgres`, sonra aynı `curl`, ardından `docker compose unpause postgres` | Duraklatılmışken `503` · `{"status":"unavailable","checks":{"database":"unavailable"}}`; açılınca yeniden `200` |
+| OpenAPI belgesi ve Swagger UI | `curl -i http://localhost:8080/openapi.yaml`; tarayıcıda `http://localhost:8080/docs` | `200`; YAML `openapi: 3.0.3` ile başlar; `/docs` Swagger UI açar (betik CDN'den) |
+| Prometheus metrikleri | `curl -s http://localhost:8080/metrics \| grep parakopru_http` | `parakopru_http_requests_total{method,route,status}` ve `parakopru_http_request_duration_seconds_bucket`; rota etiketi yol desenidir (`/api/v1/accounts/{id}`), ham kimlik değil. Otomatik: `go test -run TestDocsAndMetricsEndpoints ./cmd/api/` |
 | Tutarlı hata biçimi | `curl -i http://localhost:8080/api/v1/olmayan-uc` | `404` · `{"error":{"code":"NOT_FOUND","message":"Böyle bir uç nokta yok."}}` |
 | Desteklenmeyen yöntem | `curl -i -X DELETE http://localhost:8080/health` | `405` · `{"error":{"code":"METHOD_NOT_ALLOWED",...}}` |
 | İstek kimliği | `curl -i -H 'X-Request-ID: deneme-1' http://localhost:8080/health` | Yanıt başlığında `X-Request-ID: deneme-1`; API logunda aynı `request_id` |

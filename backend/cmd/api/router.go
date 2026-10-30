@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"parakopru/api"
 	"parakopru/internal/account"
 	"parakopru/internal/card"
 	"parakopru/internal/customer"
@@ -18,6 +19,7 @@ import (
 	"parakopru/internal/platform/health"
 	"parakopru/internal/platform/httpx"
 	"parakopru/internal/platform/ids"
+	"parakopru/internal/platform/metrics"
 	"parakopru/internal/transfer"
 )
 
@@ -29,6 +31,7 @@ type routerDeps struct {
 	IDs            ids.Generator
 	RequestTimeout time.Duration
 	HealthChecks   []health.Check
+	Metrics        *metrics.HTTP
 	Tokens         *auth.Tokens
 	Auth           *auth.Handler
 	Audit          *audit.Handler
@@ -59,10 +62,23 @@ func newRouter(d routerDeps) http.Handler {
 		httpx.Recover,
 		httpx.Timeout(d.RequestTimeout),
 	)
+	if d.Metrics != nil {
+		r.Use(d.Metrics.Middleware)
+	}
 	r.NotFound(httpx.NotFound)
 	r.MethodNotAllowed(httpx.MethodNotAllowed)
 
 	r.Get("/health", health.Handler(healthTimeout, d.HealthChecks...))
+
+	// Girişsiz belge ve metrik uçları (DECISIONS.md K-3): Prometheus token taşıyamaz; gerçek ortamda ağ düzeyinde kapatılır.
+	if d.Metrics != nil {
+		r.Method(http.MethodGet, "/metrics", d.Metrics.Handler())
+	}
+	r.Get("/openapi.yaml", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+		_, _ = w.Write(api.OpenAPI)
+	})
+	r.Get("/docs", docsPage)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Girişsiz: kullanıcı henüz access token'a sahip değil. Refresh ve logout HttpOnly çerezle doğrulanır.
@@ -129,4 +145,14 @@ func newRouter(d routerDeps) http.Handler {
 	})
 
 	return r
+}
+
+// docsPage Swagger UI ile OpenAPI belgesini gösterir (betik ve stil CDN'den; çevrimdışı ortamda /openapi.yaml doğrudan okunur).
+func docsPage(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>ParaKöprü API</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css"></head>
+<body><div id="ui"></div>
+<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
+<script>window.ui = SwaggerUIBundle({url: "/openapi.yaml", dom_id: "#ui"});</script></body></html>`))
 }

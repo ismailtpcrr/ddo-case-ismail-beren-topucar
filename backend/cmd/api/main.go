@@ -29,6 +29,7 @@ import (
 	"parakopru/internal/platform/health"
 	"parakopru/internal/platform/ids"
 	"parakopru/internal/platform/jobs"
+	"parakopru/internal/platform/metrics"
 	"parakopru/internal/platform/observability"
 	"parakopru/internal/transfer"
 	"parakopru/migrations"
@@ -94,6 +95,7 @@ func run() error {
 		IDs:            idGen,
 		RequestTimeout: cfg.RequestTimeout,
 		HealthChecks:   []health.Check{{Name: "database", Run: pool.Ping}},
+		Metrics:        metrics.New(),
 		Tokens:         tokens,
 		Auth:           auth.NewHandler(authSvc, cfg.CookieSecure),
 		Audit:          audit.NewHandler(audit.NewService(pool)),

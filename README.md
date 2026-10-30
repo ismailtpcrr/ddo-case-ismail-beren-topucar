@@ -53,7 +53,8 @@ Her rol için bir hesap, sistem ilk açıldığında otomatik oluşturulur. Heps
 
 Demo müşterinin dört hesabı (vadesiz TRY 50.000 / USD 2.000 / EUR 2.000, vadeli TRY 100.000) ve bir kartı vardır. Elle deneme:
 [requests.http](requests.http) (VS Code REST Client), her uç için örnek ve beklenen sonuç: [TESTING.md](TESTING.md).
-API belgesi dosya olarak [backend/api/openapi.yaml](backend/api/openapi.yaml) (`/docs` ve `/metrics` uçları yapılmadı).
+API belgesi: `GET http://localhost:8080/docs` (Swagger UI; betik CDN'den yüklenir, çevrimdışıysa `/openapi.yaml` doğrudan okunur), dosya olarak [backend/api/openapi.yaml](backend/api/openapi.yaml).
+Prometheus metrikleri: `GET http://localhost:8080/metrics` (istek sayısı ve süre dağılımı, yol deseniyle etiketli).
 
 ## Mimari özet
 
@@ -180,7 +181,8 @@ açılış − giden + gelen; toplam değişmedi; `/admin/invariants` ok. Ek ola
 | Simülatör: 20.000 müşteri, dış banka | ✅ | tohumlu seed; **günde ~200.000 işlem trafiği ve gün sonu ekstre dosyası yok** (K1, I1) |
 | Frontend | ◐ | müşteri ekranları var; operasyon/risk/uyum/denetçi ekranları ve canlı akış yok (K2); `make verify` UI kimliği yalnız sayfa + proxy |
 | CI | ✅ | build, `go test -race`, lint, govulncheck, imaj derleme (GitHub Actions) |
-| `/metrics`, `/docs`, OpenTelemetry | ❌ yapılmadı | L2; yalnız `openapi.yaml` dosyası var |
+| OpenAPI, `/docs`, `/metrics` | ✅ | `GET /openapi.yaml`, `GET /docs`, `GET /metrics` (girişsiz, K-03) |
+| OpenTelemetry trace (api → worker → simulator) | ❌ yapılmadı | zaman yetmedi (L2'nin trace kısmı); Jaeger servisi de yok |
 | k6 yük testi ve SLO tablosu | ❌ yapılmadı | L3 |
 | Kaos senaryoları (≥ 2 betik) | ❌ yapılmadı | L4; PITR betiği felaket kurtarma içindir, kaos senaryosu değildir |
 | Kapsam ≥ %75 ve soğuk başlangıç ölçümü | ◐ | `transfer` ve `sim` paketleri %71 civarındaydı, `customer` paketinin kendi testi yok; soğuk başlangıç (≤ 5 dk) ölçülmedi |
