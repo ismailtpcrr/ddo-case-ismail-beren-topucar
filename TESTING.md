@@ -123,6 +123,18 @@ Veritabanı testleri gerçek bir PostgreSQL 16 konteyneri açar (testcontainers)
 Her test paketi kendi konteynerini açar, migrasyonları uygular ve iş bitince kapatır.
 `cd backend && go test -short ./...` veritabanı testlerini atlayıp yalnız birim testlerini çalıştırır.
 
+## Sürekli entegrasyon (GitHub Actions)
+
+`.github/workflows/ci.yml`, her `push` (main) ve pull request'te çalışır; yerelde aynı adımlar şu komutlarla denenir:
+
+| İş | Ne yapar | Yerelde |
+|---|---|---|
+| `backend` | `go build`, `go test -race` (testcontainers; runner'da Docker hazır), golangci-lint v2.15.0, govulncheck | `cd backend && go build ./... && go test -race ./...`; `make lint`; `cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...` (beklenen: "No vulnerabilities found") |
+| `frontend` | `npm ci`, oxlint, `tsc` + Vite derlemesi | `cd frontend && npm ci && npm run lint && npm run build` |
+| `images` | Backend ve frontend Docker imajlarının derlenmesi (push yok) | `docker compose build` |
+
+Durum: GitHub'da **Actions** sekmesi ya da `gh run list`.
+
 ## Müşteri ve hesaplar
 
 | Ne denenir | Nasıl denenir | Beklenen sonuç |

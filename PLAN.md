@@ -580,7 +580,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [ ] K2 `feat(frontend)`: operasyon, risk, uyum, denetçi ekranları; canlı işlem akışı
 
 ### L — Kalite
-- [ ] L1 `ci`: GitHub Actions (build, test, lint, govulncheck, imajlar)
+- [x] L1 `ci`: GitHub Actions (build, test, lint, govulncheck, imajlar)
 - [ ] L2 `feat(obs)`: OpenAPI + `/docs`, `/metrics`, transfer akışında api → worker → simulator OpenTelemetry trace (Jaeger)
 - [ ] L3 `test(load)`: k6 senaryoları, `make load`, SLO tablosu
 - [ ] L4 `test(chaos)`: iki kaos betiği + sonuçları

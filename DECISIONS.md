@@ -355,3 +355,20 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   Idempotency-Key üretmek (ağ hatasında yeniden denemek çift işlem riski taşır); Next.js (ek sunucu süreci, bu ürün için fayda yok).
 - **Sonuçlar / ödünleşimler:** Mantine paketi büyük (≈ 0,5 MB minify); tek sayfalık iç uygulama için kabul edildi, kod bölme
   gerekirse yapılır. Bu adımda ekranlar: giriş, hesaplar, hesap hareketleri, transfer; operasyon/risk/uyum/denetçi ekranları K2'de.
+
+## K-18 CI: üç iş, yerelle aynı komutlar, bilinen zafiyet bağımlılıkla giderildi
+
+*(PLAN.md §10 "CI"; L1 adımı.)*
+
+- **Bağlam:** proje.md §9: GitHub Actions ile build + test + lint + `govulncheck` + konteyner imajı derleme zorunlu.
+- **Karar:** Üç iş: `backend` (build, `go test -race`, lint, govulncheck), `frontend` (lint, build), `images` (iki Dockerfile'ın
+  derlenmesi; backend ve frontend işleri geçince). Lint ve govulncheck, Makefile'daki ile aynı sabit sürümle `go run` üzerinden
+  çalışır: yerelde geçen CI'da da geçer, kurulum eylemi sürüm kaymasına yol açmaz. Testler testcontainers kullandığı için
+  ayrı bir PostgreSQL servisi tanımlanmadı (runner'ın Docker'ı yeterli; yerel ve CI aynı yoldan çalışır).
+- **Zafiyet:** ilk govulncheck çalıştırması `GO-2026-6253`'ü gösterdi (`moby/go-archive` v0.2.0, testcontainers'ın bağımlılığı;
+  yalnız test altyapısında). `v0.3.0`'a yükseltilerek giderildi; tarama temiz ve `go test -race ./...` yeşil.
+- **Değerlendirilen alternatifler:** `golangci-lint-action` (ek eylem ve sürüm eşlemesi; `go run` ile aynı sonuç);
+  zafiyeti "çağrılmıyor" diye yok saymak (CI'ı kırmızı bırakır ya da taramayı gevşetmek gerekir).
+- **Sonuçlar / ödünleşimler:** `go run …@sürüm` her çalıştırmada derler (~1 dk, modül önbelleğiyle kısalır). Eylem sürümleri
+  (`checkout@v4` vb.) ana sürüm etiketine bağlıdır, commit SHA'sına sabitlenmedi. CI'ın GitHub'da yeşil çalıştığı push sonrası
+  Actions sekmesinden görülür; bu oturumda yalnızca yerelde eşdeğer komutlar çalıştırıldı.
