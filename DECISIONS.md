@@ -401,8 +401,7 @@ Aşağıdaki 27 kaydın her biri **Bağlam · Karar · Alternatifler · Sonuçla
 - **Değerlendirilen alternatifler:** `golangci-lint-action` (ek eylem ve sürüm eşlemesi; `go run` ile aynı sonuç);
   zafiyeti "çağrılmıyor" diye yok saymak (CI'ı kırmızı bırakır ya da taramayı gevşetmek gerekir).
 - **Sonuçlar / ödünleşimler:** `go run …@sürüm` her çalıştırmada derler (~1 dk, modül önbelleğiyle kısalır). Eylem sürümleri
-  (`checkout@v4` vb.) ana sürüm etiketine bağlıdır, commit SHA'sına sabitlenmedi. CI'ın GitHub'da yeşil çalıştığı push sonrası
-  Actions sekmesinden görülür; bu oturumda yalnızca yerelde eşdeğer komutlar çalıştırıldı.
+  (`checkout@v4` vb.) ana sürüm etiketine bağlıdır, commit SHA'sına sabitlenmedi. CI'ın ilk çalışmaları kırmızıydı (ek notlara bakın); düzeltmeden sonraki commit'ler GitHub'da yeşil çalıştı.
 
 ## K-19 Dış banka sahtesi: çağrı başına hata, referans başına kalıcı işlem
 
@@ -636,7 +635,7 @@ Docker imajı zaten `golang:1.27-alpine` (güncel yama) ile derlenir. Yerelde Go
     (bugünse kayıt anı: ileri tarihli kayıt yok).
   - Sonraki adım: süresi dolan kart provizyonları (`card.ExpireDue`), sonra `DONE`. Mutabakat ve müşteri ekstresi adımları mutabakat modülüyle eklenir.
   - Çökme testi: `EOD_CRASH_AFTER_BATCHES` > 0 ise worker o kadar partiden sonra süreci gerçekten öldürür (`os.Exit`); Docker yeniden
-    başlatır, iş kirası dolunca tekrar alınır.
+    başlatır, iş kirası dolunca tekrar alınır (bu canlı akış oturumda denenmedi; devam davranışı `TestEODResumesAfterCrashWithoutDoubleAccrual` ile kanıtlıdır).
 - **Değerlendirilen alternatifler:** Tek dev transaction (çökmede her şey baştan, uzun kilit); hesap başına bir kuyruk işi (32.000 iş
   satırı); API isteğinde senkron çalıştırma (zaman aşımı).
 - **Sonuçlar / ödünleşimler:** Anapara güncel bakiyeden alınır; gün sonu gecikmeli çalıştırılırsa o günün bakiyesi yerine çalıştırma anının

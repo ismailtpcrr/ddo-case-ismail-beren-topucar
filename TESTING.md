@@ -228,7 +228,7 @@ veritabanına yalnız geçici `dr_demo` tablosunu ekler ve siler. Arşivin durum
 | Aynı günü tekrar | Aynı istek | `200`, aynı çalıştırma; yeni tahakkuk yok (`UNIQUE(account_id, accrual_date)`) |
 | Faiz hesaba geçti | Müşteri token'ıyla vadeli TRY hesabının `/entries` | `INTEREST_ACCRUAL` hareketi, `balance_effect_minor` = net faiz |
 | Çökme ve kaldığı yerden devam (otomatik) | `cd backend && go test -race -run TestEODResumesAfterCrashWithoutDoubleAccrual -v ./internal/interest/` | 7 hesap, partide 2: 2 parti sonra çöker (yarım), yeniden çalıştırma devam eder; her hesap tam 1 kez, tutarlar çökmesiz hesapla birebir aynı, `attempts = 2` |
-| Çökme ve devam (canlı) | `.env`'e `EOD_CRASH_AFTER_BATCHES=2` ve `EOD_BATCH_SIZE=500`, `WORKER_JOB_LEASE=20s` ekleyip `docker compose up -d worker`; gün sonunu başlat; `docker compose logs -f worker` | Worker 2 partiden sonra `EOD_CRASH_AFTER_BATCHES reached` ile çıkar, Docker yeniden başlatır, kira dolunca iş yeniden alınır ve `last_account_id`'den devam eder; `GET /eod/runs/{date}` → `DONE`, `attempts ≥ 2`, tahakkuk sayısı hesap sayısına eşit. Sonra ayarları geri alın |
+| Çökme ve devam (canlı; **bu oturumda canlı denenmedi**, kod ve ayar yolundan türetilmiş beklenti, kanıt yukarıdaki otomatik testtir) | `.env`'e `EOD_CRASH_AFTER_BATCHES=2` ve `EOD_BATCH_SIZE=500`, `WORKER_JOB_LEASE=20s` ekleyip `docker compose up -d worker`; gün sonunu başlat; `docker compose logs -f worker` | Worker 2 partiden sonra `EOD_CRASH_AFTER_BATCHES reached` ile çıkar, Docker yeniden başlatır, kira dolunca iş yeniden alınır ve `last_account_id`'den devam eder; `GET /eod/runs/{date}` → `DONE`, `attempts ≥ 2`, tahakkuk sayısı hesap sayısına eşit. Sonra ayarları geri alın |
 | Çift tahakkuk imkânsız (DB) | `go test -run TestAccrualUniquePerAccountAndDay ./internal/interest/` | Aynı hesap/gün ikinci satır `interest_accruals_once` kısıtına takılır |
 | Defter ve tutarlar | `go test -run TestEODAccruesInterestWithTaxIntoLedger -v ./internal/interest/` | 3 gün: tutarlar saf fonksiyonla birebir aynı; brüt = net + vergi; `/admin/invariants` ok |
 
@@ -393,6 +393,8 @@ Ayrıntılı "nasıl denenir / beklenen sonuç" satırları yukarıdaki `make ve
 | T-7 Zaman yolculuğu, bütünlük, DR | ✅ | `make verify` (PITR dahil); `make pitr-demo` |
 
 ## Arayüz senaryoları
+
+**Dürüstlük notu:** 1-5, 7 ve oturumun yenilenmesi tarayıcıda (mobil genişlikte, gerçek Chrome ile) denendi; 6, 8-11 numaralı senaryolar koddan beklenen davranıştır, elle tarayıcıda denenmedi; onay bekleyen transfer bildirimi de tarayıcıda görülmedi.
 
 Sistem ayaktayken `http://localhost:3000`. Her ekranda yükleniyor / boş / hata durumu vardır; mobil genişlikte
 (≈ 390 px) menü hamburger düğmesine sığar, tablolar yatay kayar.
