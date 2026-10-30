@@ -1,0 +1,6 @@
+# Kabuk betikleri ve SQL dosyaları her işletim sisteminde LF satır sonuyla kalsın;
+# CRLF ile klonlanan bir betik konteyner içinde çalışmaz.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

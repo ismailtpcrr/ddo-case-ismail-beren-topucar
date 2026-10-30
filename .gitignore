@@ -1,15 +1,16 @@
 # Şartname dosyası teslimin parçası değil
 proje.md
 
-# Ortam ve gizli değerler
+# Ortam ve gizli değerler (.env.example depoda kalır)
 .env
 *.pem
 
 # Go
-/bin/
+bin/
 *.test
 *.out
 coverage.*
+__debug_bin*
 
 # Frontend
 node_modules/

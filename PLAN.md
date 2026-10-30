@@ -525,7 +525,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 ## 12. Adımlar (sırayla)
 
 ### A — İskelet ve altyapı
-- [ ] A1 `chore`: depo iskeleti, `.gitignore`, `.env.example`, `Makefile` iskeleti
+- [x] A1 `chore`: depo iskeleti, `.gitignore`, `.env.example`, `Makefile` iskeleti
 - [ ] A2 `feat(platform)`: Go modülü, config, slog JSON log, `apperr` + `httpx` (hata biçimi, JSON, sayfalama), clock, ids
 - [ ] A3 `feat(api)`: chi router, istek middleware'leri (request id, log, recover, zaman aşımı), `GET /health` (DB dahil), graceful shutdown
 - [ ] A4 `feat(db)`: `TxManager` (yeniden denemeli), goose ile ilk migrasyonlar, iki DB rolü, `api` açılışında advisory lock ile migrasyon
