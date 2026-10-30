@@ -1,0 +1,27 @@
+# golangci-lint v2 ayarları. Çalıştırma: repo kökünde `make lint`.
+version: "2"
+
+linters:
+  # standard: errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - bodyclose     # HTTP yanıt gövdesi kapatılmalı
+    - errorlint     # hata karşılaştırması errors.Is / errors.As ile
+    - gosec         # temel güvenlik kontrolleri
+    - noctx         # context'siz HTTP isteği / SQL sorgusu olmasın
+    - rowserrcheck  # rows.Err() kontrol edilmeli
+    - sqlclosecheck # rows / stmt kapatılmalı
+    - unconvert     # gereksiz tip dönüşümü
+  exclusions:
+    rules:
+      # Testlerde güvenlik uyarıları (ör. sabit test parolası) anlamsız.
+      - path: _test\.go
+        linters: [gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [parakopru]
