@@ -468,3 +468,26 @@ Ders: CI'da kullanılan araç sürümleri, `go.mod`'daki Go sürümüyle birlikt
 *K-18 eki 2:* govulncheck v1.9.0 çalıştı ve Go 1.27.0 standart kütüphanesindeki iki gerçek zafiyeti bildirdi (`GO-2026-6809`
 crypto/x509, `GO-2026-6617` net/http2). CI artık `go.mod`'daki sürüm yerine Go 1.27'nin en son yamasını (`check-latest`) kurar;
 Docker imajı zaten `golang:1.27-alpine` (güncel yama) ile derlenir. Yerelde Go 1.27.3 ile tarama temiz.
+
+## K-22 Zaman yolculuğu: iki zaman ekseni, defterden türetme, yetki
+
+*(PLAN.md §5.9; PLAN §14 madde 12; F1 adımı. Kolonlar ve değişmezlik B3'te gelmişti, bkz. K-13.)*
+
+- **Bağlam:** proje.md Görev 7: herhangi bir geçmiş tarihteki bakiye ve defter sorgulanabilmeli; işlem zamanı ile geçerlilik
+  zamanı ayrılmalı; satırlar silinmez/güncellenmez, düzeltme ters kayıtla.
+- **Karar:**
+  - `balance?as_of=V&known_at=T` bakiyeyi **defterden** hesaplar: `Σ amount_minor WHERE effective_at ≤ V AND recorded_at ≤ T`,
+    hesabın doğal tarafına göre işaretlenir. Özet tablosu (`account_balances`) yalnız güncel değer içindir; geçmiş için
+    "snapshot" tablosu tutulmaz: satırlar değişmez olduğu için türetme her zaman doğrudur ve dizin
+    (`postings(account_id, effective_at) INCLUDE (amount_minor, recorded_at)`) yalnız-dizin taramasıyla yeter.
+  - Defter listesi aynı iki eksenle süzülür: `from/to` (= `as_of`) geçerliliğe, `known_at` kayda uygulanır.
+  - Yalnız tarih verilirse `from` günün başı, `to`/`as_of`/`known_at` günün sonudur (UTC): "as_of=2026-10-29" o günün
+    kapanış bakiyesidir.
+  - **Yetki:** zaman yolculuğu (`as_of`, `known_at`) `ledger:read` sahibi rollerindir (PLAN §5.10); müşteri güncel bakiyesini ve
+    kendi ekstre aralığını (`from/to`) görür, parametreyle 403.
+  - **Geriye tarihli kayıt** ancak servis (ters kayıt `effective_at` ile) üzerinden olur: `effective_at ≤ recorded_at` DB kısıtıdır
+    (ileri tarihli kayıt yok) ve ters kayıt özgün kaydın geçerlilik zamanından önce olamaz.
+- **Değerlendirilen alternatifler:** Günlük bakiye anlık görüntüsü tablosu (ek yazma yolu, tutarsızlık riski; defter zaten
+  değişmez); `recorded_at`'i uygulama saatiyle yazmak (K-13'te elendi); müşteriye de `as_of` açmak (PLAN matrisinde yok).
+- **Sonuçlar / ödünleşimler:** Çok eski bir `as_of` hesabın tüm satırlarını toplar; çok yoğun hesaplarda (iç hesaplar)
+  maliyet satır sayısıyla artar (dizin-yalnız tarama, milisaniyeler). Bu durumda dönemsel kapanış snapshot'ı eklenebilir (şimdilik gerek yok).

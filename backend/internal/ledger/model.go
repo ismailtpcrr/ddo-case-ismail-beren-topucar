@@ -91,9 +91,10 @@ var (
 var (
 	ErrInsufficientFunds = apperr.New(http.StatusUnprocessableEntity, "INSUFFICIENT_FUNDS",
 		"Hesapta yeterli kullanılabilir bakiye yok.")
-	ErrEntryNotFound   = apperr.ErrNotFound.WithMessage("Yevmiye kaydı bulunamadı.")
-	ErrAlreadyReversed = apperr.New(http.StatusConflict, "ALREADY_REVERSED", "Bu kayıt zaten ters çevrilmiş.")
-	ErrNotReversible   = apperr.New(http.StatusUnprocessableEntity, "ENTRY_NOT_REVERSIBLE",
+	ErrTimeTravelForbidden = apperr.ErrForbidden.WithMessage("Geçmiş tarihli (as_of / known_at) sorgu yetkiniz yok.")
+	ErrEntryNotFound       = apperr.ErrNotFound.WithMessage("Yevmiye kaydı bulunamadı.")
+	ErrAlreadyReversed     = apperr.New(http.StatusConflict, "ALREADY_REVERSED", "Bu kayıt zaten ters çevrilmiş.")
+	ErrNotReversible       = apperr.New(http.StatusUnprocessableEntity, "ENTRY_NOT_REVERSIBLE",
 		"Bu kayıt elle ters çevrilemez; bir işleme (ör. transfer) ait kayıtlar o işlem üzerinden düzeltilir.")
 	ErrReversalOfReversal = ErrNotReversible.WithMessage("Ters kayıt yeniden ters çevrilemez.")
 	ErrInvalidEffectiveAt = apperr.ErrValidation.WithMessage(
@@ -291,4 +292,23 @@ type Invariants struct {
 	UnbalancedEntries int64           `json:"unbalanced_entries"` // para birimi başına Σ ≠ 0 olan kayıt sayısı
 	SummaryMismatches int64           `json:"summary_mismatches"` // özeti defterden türetilen bakiyeden farklı hesap sayısı
 	HoldMismatches    *int64          `json:"hold_mismatches"`    // held_minor ≠ Σ aktif provizyon (E1'de gelecek; şimdilik null)
+}
+
+// PostingFilter hesap hareketlerinin süzgeçleridir. From/To geçerlilik (valör) zamanına, KnownAt kayıt zamanına uygulanır:
+// "bu aralıktaki hareketler, T anında bildiğimizle".
+type PostingFilter struct {
+	From, To, KnownAt *time.Time
+}
+
+// BalanceResponse bir hesabın belirli bir andaki bakiyesidir (zaman yolculuğu).
+//
+// AsOf geçerlilik zamanıdır: "V anında hesabın bakiyesi ne olmalıydı". KnownAt kayıt zamanıdır: "T anında elimizdeki
+// kayıtlarla". İkisi birlikte verilince geriye tarihli düzeltmeler (effective_at geçmişte, recorded_at sonra) görünür:
+// aynı V için farklı T'ler farklı bakiye verebilir. Hiçbiri verilmezse güncel bakiye.
+type BalanceResponse struct {
+	AccountID    uuid.UUID      `json:"account_id"`
+	Currency     money.Currency `json:"currency"`
+	AsOf         *time.Time     `json:"as_of"`
+	KnownAt      *time.Time     `json:"known_at"`
+	BalanceMinor int64          `json:"balance_minor"`
 }

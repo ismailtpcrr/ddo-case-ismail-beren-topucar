@@ -354,3 +354,39 @@ Content-Type: application/json
 Idempotency-Key: {{$guid}}
 
 {"amount_minor": 100, "currency": "TRY"}
+
+# ---------------------------------------------------------------------------
+# Zaman yolculuğu (T-7): as_of = geçerlilik zamanı, known_at = kayıt zamanı
+# ---------------------------------------------------------------------------
+
+### Denetçi olarak giriş
+# @name loginDenetci
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "denetci@parakopru.test", "password": "{{password}}"}
+
+### Güncel bakiye (müşteri kendi hesabını sorabilir)
+GET {{baseUrl}}/api/v1/accounts/{{myAccounts.response.body.$.items[0].id}}/balance
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Geçmiş bakiye: dün kapanışta (denetçi; müşteri as_of ile 403) — yalnız tarih = o günün sonu (UTC)
+GET {{baseUrl}}/api/v1/accounts/{{myAccounts.response.body.$.items[0].id}}/balance?as_of=2026-10-29
+Authorization: Bearer {{loginDenetci.response.body.access_token}}
+
+### Hem geçerlilik hem kayıt zamanı: "V anında bakiye, T anında bildiğimizle"
+# Geriye tarihli bir düzeltmeden önceki ve sonraki known_at farklı bakiye verir (bkz. TESTING.md "Zaman yolculuğu")
+GET {{baseUrl}}/api/v1/accounts/{{myAccounts.response.body.$.items[0].id}}/balance?as_of=2026-10-30T23:59:59Z&known_at=2026-10-30T00:00:00Z
+Authorization: Bearer {{loginDenetci.response.body.access_token}}
+
+### Defter hareketleri aralık ve kayıt zamanı ile (denetçi)
+GET {{baseUrl}}/api/v1/accounts/{{myAccounts.response.body.$.items[0].id}}/entries?from=2026-10-01&to=2026-10-31&known_at=2026-10-30T23:59:59Z
+Authorization: Bearer {{loginDenetci.response.body.access_token}}
+
+### Geriye tarihli düzeltme: açılış kaydını kendi geçerlilik zamanıyla ters çevir (effective_at = kaydın effective_at'i; operasyon)
+POST {{baseUrl}}/api/v1/ledger/entries/{{myEntries.response.body.$.items[0].entry_id}}/reverse
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"reason": "Geriye tarihli düzeltme", "effective_at": "2026-10-30T00:00:00Z"}

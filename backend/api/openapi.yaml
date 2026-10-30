@@ -227,10 +227,16 @@ paths:
         İzin: `own_banking` ya da `ledger:read`. Müşteri başka bir müşterinin hesabını isterse 403.
         Her hareket bir defter satırıdır: yön (`side`), pozitif tutar ve bakiyeye etkisi (`balance_effect_minor`;
         müşteri hesabında para girişi +, çıkışı −). Hareketlerin toplamı hesabın bakiyesidir.
-        `as_of` / `known_at` (zaman yolculuğu) F1 adımında eklenecek.
+        Süzgeçler: `from` / `to` (ya da `as_of`) geçerlilik (valör) zamanına, `known_at` kayıt zamanına uygulanır
+        ("bu aralıktaki hareketler, T anında bildiğimizle"). `known_at` yalnız `ledger:read` rollerine açıktır (müşteri 403).
+        Zamanlar RFC 3339 ya da `YYYY-MM-DD` (yalnız tarih: `from` günün başı, `to`/`as_of`/`known_at` günün sonu, UTC).
       tags: [Defter]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: from, in: query, schema: { type: string }, description: "Geçerlilik zamanı alt sınırı" }
+        - { name: to, in: query, schema: { type: string }, description: "Geçerlilik zamanı üst sınırı" }
+        - { name: as_of, in: query, schema: { type: string }, description: "`to` takma adı" }
+        - { name: known_at, in: query, schema: { type: string }, description: "Yalnız bu andan önce kaydedilmiş satırlar" }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       responses:
@@ -244,6 +250,39 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: "#/components/schemas/AccountPosting" } }
                   next_cursor: { type: string, nullable: true }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/accounts/{id}/balance:
+    get:
+      summary: Hesap bakiyesi (zaman yolculuğu)
+      description: |
+        İzin: `own_banking` ya da `ledger:read`. Bakiye defterden türetilir (Σ satırlar, hesabın doğal tarafına göre işaretli).
+        `as_of` = **geçerlilik zamanı** ("V anında bakiye ne olmalıydı", `effective_at ≤ V`);
+        `known_at` = **kayıt zamanı** ("T anında elimizdeki kayıtlarla", `recorded_at ≤ T`). İkisi verilmezse güncel bakiye.
+        Geriye tarihli düzeltme yeni bir kayıttır (`effective_at` geçmişte, `recorded_at` şimdi): aynı `as_of` için
+        farklı `known_at` farklı bakiye verir. `as_of`/`known_at` yalnız `ledger:read` sahibi rollere açıktır; müşteri
+        yalnız güncel bakiyesini sorabilir (parametreyle 403). Başka müşterinin hesabı 403.
+      tags: [Defter]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: as_of, in: query, schema: { type: string }, description: "RFC 3339 ya da YYYY-MM-DD (günün sonu, UTC)" }
+        - { name: known_at, in: query, schema: { type: string }, description: "RFC 3339 ya da YYYY-MM-DD (günün sonu, UTC)" }
+      responses:
+        "200":
+          description: Bakiye
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_id: { type: string, format: uuid }
+                  currency: { type: string, enum: [TRY, USD, EUR] }
+                  as_of: { type: string, format: date-time, nullable: true }
+                  known_at: { type: string, format: date-time, nullable: true }
+                  balance_minor: { type: integer, format: int64 }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }

@@ -148,7 +148,7 @@ type postingCursor struct {
 
 // listAccountPostings hesabın hareketlerini en yeni önce, keyset sayfalı listeler
 // (postings_account_effective_idx dizini üzerinden geriye doğru okunur).
-func listAccountPostings(ctx context.Context, q db.DBTX, accountID uuid.UUID, req page.Request) (page.Page[AccountPosting], error) {
+func listAccountPostings(ctx context.Context, q db.DBTX, accountID uuid.UUID, f PostingFilter, req page.Request) (page.Page[AccountPosting], error) {
 	var (
 		afterTime *time.Time
 		afterID   *uuid.UUID
@@ -167,8 +167,11 @@ func listAccountPostings(ctx context.Context, q db.DBTX, accountID uuid.UUID, re
 		  JOIN journal_entries e ON e.id = p.entry_id
 		 WHERE p.account_id = $1
 		   AND ($2::timestamptz IS NULL OR (p.effective_at, p.id) < ($2, $3::uuid))
+		   AND ($5::timestamptz IS NULL OR p.effective_at >= $5)
+		   AND ($6::timestamptz IS NULL OR p.effective_at <= $6)
+		   AND ($7::timestamptz IS NULL OR p.recorded_at <= $7)
 		 ORDER BY p.effective_at DESC, p.id DESC
-		 LIMIT $4`, accountID, afterTime, afterID, req.Limit+1)
+		 LIMIT $4`, accountID, afterTime, afterID, req.Limit+1, f.From, f.To, f.KnownAt)
 	if err != nil {
 		return page.Page[AccountPosting]{}, fmt.Errorf("ledger: list postings: %w", err)
 	}
@@ -236,4 +239,20 @@ func checkInvariants(ctx context.Context, q db.DBTX) (Invariants, error) {
 	}
 	inv.HoldMismatches = &holds
 	return inv, nil
+}
+
+// balanceAt hesabın işaretli satır toplamını verir (+ borç, − alacak): effective_at ≤ asOf ve recorded_at ≤ knownAt olan
+// satırlar. Parametre nil ise o süzgeç uygulanmaz. postings_account_effective_idx (INCLUDE amount, recorded_at) ile
+// yalnız dizinden okunur.
+func balanceAt(ctx context.Context, q db.DBTX, accountID uuid.UUID, asOf, knownAt *time.Time) (int64, error) {
+	var sum int64
+	err := q.QueryRow(ctx, `
+		SELECT coalesce(sum(amount_minor), 0)::bigint FROM postings
+		 WHERE account_id = $1
+		   AND ($2::timestamptz IS NULL OR effective_at <= $2)
+		   AND ($3::timestamptz IS NULL OR recorded_at <= $3)`, accountID, asOf, knownAt).Scan(&sum)
+	if err != nil {
+		return 0, fmt.Errorf("ledger: balance at: %w", err)
+	}
+	return sum, nil
 }

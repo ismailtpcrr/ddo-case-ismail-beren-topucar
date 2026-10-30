@@ -555,7 +555,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [x] E2 `test(card)`: eşzamanlı yarış testleri + verify'a F-4, T-3
 
 ### F — Zaman yolculuğu, dört göz, felaket kurtarma (T-7)
-- [ ] F1 `feat(ledger)`: `effective_at` / `recorded_at`, `as_of` + `known_at` bakiye ve defter sorguları
+- [x] F1 `feat(ledger)`: `effective_at` / `recorded_at`, `as_of` + `known_at` bakiye ve defter sorguları
 - [ ] F2 `feat(transfer)`: 10.000 TL üzeri transferlerde dört göz onayı
 - [ ] F3 `feat(dr)`: WAL arşivi, `pg_dump`, PITR betiği (`make pitr-demo`; `make verify` de çalıştırır) + verify'a T-7
 

@@ -184,6 +184,20 @@ Durum: GitHub'da **Actions** sekmesi ya da `gh run list`.
 | Ters kayıt yetkisi | Müşteri, risk, uyum ya da denetçi token'ıyla ters kayıt | `403 FORBIDDEN` (yalnız operasyon) |
 | Defterin tamamı dengede | `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT currency, sum(amount_minor) FROM postings GROUP BY 1"'` | Her para biriminde `0` |
 
+## Zaman yolculuğu (T-7: `as_of` ve `known_at`)
+
+`as_of` **geçerlilik (valör) zamanı**, `known_at` **kayıt zamanı**dır (`recorded_at` her zaman veritabanı saatidir; istemci belirleyemez).
+Geriye tarihli düzeltme = yeni kayıt (`effective_at` geçmişte, `recorded_at` şimdi); defter satırları değişmez.
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Geçmiş bakiye | Denetçi token'ıyla `GET /api/v1/accounts/{id}/balance?as_of=2026-10-29` | `200`, o günün sonundaki bakiye (yalnız tarih = günün sonu, UTC) |
+| Geriye tarihli düzeltme | Operasyon: açılış kaydını `effective_at` = kaydın kendi `effective_at`'i ile ters çevir ([requests.http](requests.http) "Geriye tarihli düzeltme") | Güncel bakiye 0 olur; `as_of=<açılış anı + 1sn>` **güncel bilgiyle** 0, **düzeltmeden önceki** `known_at` ile eski bakiye (örn. 2.000,00 $) döner. Canlı denemede: `as_of=…13Z&known_at=(düzeltmeden önce) → 200000`, `known_at=(şimdi) → 0` |
+| Hareketleri aynı parametrelerle | `GET /accounts/{id}/entries?from=&to=&known_at=` (denetçi) | Yalnız aralıktaki ve o zamana kadar kaydedilmiş hareketler; en yeni geçerlilik önce |
+| Yetki | Müşteri token'ıyla `balance?as_of=…` ya da `entries?known_at=…` | `403`; müşteri parametresiz güncel bakiyesini ve `from/to` ekstre aralığını görebilir; başkasının hesabı `403` |
+| Otomatik test | `cd backend && go test -race -run 'TestTimeTravel|TestBalanceAndEntriesHandlerParameters' -v ./internal/ledger/` | 3 kayıt (2 gün önce, şimdi, geriye tarihli dün) üzerinde as_of × known_at tablosu: 36 sa önce 100, 12 sa önce 125, `known_at` düzeltmeden önce 100 / sonra 125; geçmişe bakmak özeti ve defteri değiştirmez |
+| Defter değiştirilemez | `go test -run TestLedgerIsAppendOnly -v ./internal/ledger/` | UPDATE/DELETE/TRUNCATE reddedilir (uygulama rolü `42501`, sahip rol trigger) |
+
 ## Transfer (banka içi) ve değişmezler
 
 | Ne denenir | Nasıl denenir | Beklenen sonuç |

@@ -84,6 +84,9 @@ func newRouter(d routerDeps) http.Handler {
 			// Çift taraflı defter (F-2, T-1, T-7). Müşteri yalnız kendi hesabının hareketlerini görür (serviste).
 			// Elle ters kayıt para hareketidir: Idempotency-Key ister (handler'da).
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts/{id}/entries", d.Ledger.AccountEntries)
+			// Bakiye ve hareketler zaman yolculuğu destekler (as_of = geçerlilik, known_at = kayıt zamanı); bu parametreler
+			// yalnız ledger:read sahibi rollere açıktır (serviste kontrol edilir).
+			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts/{id}/balance", d.Ledger.Balance)
 			r.With(auth.Require(auth.PermLedgerRead)).Get("/ledger/entries/{id}", d.Ledger.Entry)
 			r.With(auth.Require(auth.PermLedgerReverse)).Post("/ledger/entries/{id}/reverse", d.Ledger.Reverse)
 

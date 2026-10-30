@@ -522,7 +522,7 @@ func TestAccountPostings(t *testing.T) {
 	req := page.Request{Limit: 4}
 	var items []ledger.AccountPostingResponse
 	for {
-		p, err := f.ledger.AccountPostings(t.Context(), me, myAcc.ID, req)
+		p, err := f.ledger.AccountPostings(t.Context(), me, myAcc.ID, ledger.PostingFilter{}, req)
 		require.NoError(t, err)
 		items = append(items, p.Items...)
 		if p.NextCursor == nil {
@@ -543,11 +543,11 @@ func TestAccountPostings(t *testing.T) {
 	}
 	require.Equal(t, f.balance(t, myAcc.ID), sum, "hareketlerin toplamı bakiye")
 
-	_, err = f.ledger.AccountPostings(t.Context(), me, other.ID, page.Request{Limit: 10})
+	_, err = f.ledger.AccountPostings(t.Context(), me, other.ID, ledger.PostingFilter{}, page.Request{Limit: 10})
 	require.ErrorIs(t, err, apperr.ErrForbidden, "başka müşterinin hareketleri 403")
 
 	auditor := auth.Principal{UserID: uuid.New(), Role: auth.RoleAuditor}
-	p, err := f.ledger.AccountPostings(t.Context(), auditor, other.ID, page.Request{Limit: 10})
+	p, err := f.ledger.AccountPostings(t.Context(), auditor, other.ID, ledger.PostingFilter{}, page.Request{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, p.Items, 1)
 	require.Equal(t, int64(50), p.Items[0].BalanceEffectMinor)
@@ -607,4 +607,143 @@ func TestHandlers(t *testing.T) {
 	rec = call(http.MethodPost, path, "h-2", body)
 	require.Equal(t, http.StatusConflict, rec.Code)
 	require.Contains(t, rec.Body.String(), "ALREADY_REVERSED")
+}
+
+// postAt belirli geçerlilik zamanıyla bir açılış kaydı yazar ve kaydın kayıt zamanını (veritabanı saati) döndürür.
+func (f fixture) postAt(t *testing.T, a account.Account, minor int64, effective time.Time) time.Time {
+	t.Helper()
+	amt := money.New(minor, a.Currency)
+	id, err := f.post(t, ledger.Entry{Kind: ledger.KindOpeningBalance, Description: "zaman yolculuğu", EffectiveAt: &effective,
+		Lines: []ledger.Line{ledger.Debit(f.internal(t, account.OpeningEquity, a.Currency), amt), ledger.Credit(a.ID, amt)}})
+	require.NoError(t, err)
+	e, err := f.ledger.Entry(t.Context(), id)
+	require.NoError(t, err)
+	time.Sleep(30 * time.Millisecond) // kayıt zamanları birbirinden ayrışsın
+	return e.RecordedAt
+}
+
+// T-7: "işlem zamanı ile geçerlilik zamanı ayrımı". Geriye tarihli düzeltme yeni kayıttır (effective_at geçmişte,
+// recorded_at şimdi): aynı as_of için known_at'e göre farklı bakiye çıkar.
+func TestTimeTravelBalanceAsOfAndKnownAt(t *testing.T) {
+	f := newFixture(t)
+	a := f.customerAccount(t, money.TRY)
+	ops := auth.Principal{UserID: uuid.New(), Role: auth.RoleOperations}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	rBefore := time.Now().UTC().Add(-time.Second)
+	rA := f.postAt(t, a, 100_00, now.Add(-48*time.Hour)) // 2 gün önce, o gün kaydedilmiş gibi (ilk bilinen)
+	rB := f.postAt(t, a, 50_00, now)                     // şimdi
+	rC := f.postAt(t, a, 25_00, now.Add(-24*time.Hour))  // geriye tarihli düzeltme: dün geçerli, şimdi kaydedildi
+
+	bal := func(asOf, knownAt *time.Time) int64 {
+		t.Helper()
+		r, err := f.ledger.AccountBalance(t.Context(), ops, a.ID, asOf, knownAt)
+		require.NoError(t, err)
+		return r.BalanceMinor
+	}
+	at := func(d time.Duration) *time.Time { v := now.Add(d); return &v }
+	require.Equal(t, int64(175_00), bal(nil, nil), "güncel bakiye")
+	require.Equal(t, int64(100_00), bal(at(-36*time.Hour), nil), "36 saat önce: yalnız ilk kayıt geçerliydi")
+	require.Equal(t, int64(125_00), bal(at(-12*time.Hour), nil), "12 saat önce: ilk kayıt + geriye tarihli düzeltme")
+	require.Equal(t, int64(0), bal(at(-72*time.Hour), nil), "hesap açılmadan önce")
+
+	// Aynı as_of, farklı known_at: düzeltme kaydedilmeden önce bildiğimiz bakiye farklıydı.
+	require.Equal(t, int64(100_00), bal(at(-12*time.Hour), &rB), "düzeltmeden önceki bilgiyle")
+	require.Equal(t, int64(125_00), bal(at(-12*time.Hour), &rC), "düzeltmeden sonraki bilgiyle")
+	// Aynı known_at'te as_of ilerledikçe şimdi kaydı görünür.
+	require.Equal(t, int64(100_00), bal(nil, &rA))
+	require.Equal(t, int64(150_00), bal(nil, &rB))
+	require.Equal(t, int64(175_00), bal(nil, &rC))
+	require.Equal(t, int64(0), bal(nil, &rBefore), "hiçbir şey kaydedilmeden önce")
+	// Defter hâlâ dengede: geçmişe bakmak veriyi değiştirmez.
+	f.requireSummaryMatchesLedger(t, a.ID)
+
+	// Hareketler aynı parametrelerle.
+	list := func(f2 ledger.PostingFilter) []int64 {
+		t.Helper()
+		p, err := f.ledger.AccountPostings(t.Context(), ops, a.ID, f2, page.Request{Limit: 50})
+		require.NoError(t, err)
+		var out []int64
+		for _, it := range p.Items {
+			out = append(out, it.AmountMinor)
+		}
+		return out
+	}
+	require.ElementsMatch(t, []int64{50_00, 100_00, 25_00}, list(ledger.PostingFilter{}))
+	require.ElementsMatch(t, []int64{100_00, 25_00}, list(ledger.PostingFilter{To: at(-12 * time.Hour)}))
+	require.ElementsMatch(t, []int64{100_00}, list(ledger.PostingFilter{To: at(-12 * time.Hour), KnownAt: &rB}), "düzeltme henüz bilinmiyordu")
+	require.ElementsMatch(t, []int64{25_00, 50_00}, list(ledger.PostingFilter{From: at(-30 * time.Hour)}))
+	require.Equal(t, []int64{50_00, 25_00}, list(ledger.PostingFilter{From: at(-30 * time.Hour)}), "geçerlilik zamanına göre en yeni önce")
+}
+
+// Zaman yolculuğu yetkisi ledger:read sahiplerinindir; müşteri yalnız güncel bakiyesini görür (PLAN.md §5.10).
+func TestTimeTravelPermissions(t *testing.T) {
+	f := newFixture(t)
+	owner := uuid.New()
+	_, err := f.env.App.Exec(t.Context(), `INSERT INTO users (id, email, password_hash, role, full_name) VALUES ($1, $2, 'x', 'CUSTOMER', 'Ben')`, owner, owner.String()+"@parakopru.test")
+	require.NoError(t, err)
+	var mine customer.Customer
+	require.NoError(t, f.txm.WithTx(audit.WithSystemActor(t.Context()), func(ctx context.Context, tx db.DBTX) error {
+		var err error
+		mine, _, err = f.customers.EnsureForUser(ctx, tx, owner, customer.CreateInput{FullName: "Ben", NationalID: uniqueNationalID()})
+		return err
+	}))
+	a, err := f.accounts.Open(f.ops, account.OpenInput{CustomerID: mine.ID, Kind: account.Checking, Currency: money.TRY})
+	require.NoError(t, err)
+	f.fund(t, a, 10_00)
+
+	me := auth.Principal{UserID: owner, Role: auth.RoleCustomer}
+	now := time.Now()
+	got, err := f.ledger.AccountBalance(t.Context(), me, a.ID, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(10_00), got.BalanceMinor)
+	_, err = f.ledger.AccountBalance(t.Context(), me, a.ID, &now, nil)
+	require.ErrorIs(t, err, apperr.ErrForbidden)
+	_, err = f.ledger.AccountBalance(t.Context(), me, a.ID, nil, &now)
+	require.ErrorIs(t, err, apperr.ErrForbidden)
+	_, err = f.ledger.AccountPostings(t.Context(), me, a.ID, ledger.PostingFilter{KnownAt: &now}, page.Request{Limit: 5})
+	require.ErrorIs(t, err, apperr.ErrForbidden)
+	_, err = f.ledger.AccountPostings(t.Context(), me, a.ID, ledger.PostingFilter{To: &now}, page.Request{Limit: 5})
+	require.NoError(t, err, "ekstre aralığı (from/to) müşteriye açık")
+
+	other := f.customerAccount(t, money.TRY)
+	_, err = f.ledger.AccountBalance(t.Context(), me, other.ID, nil, nil)
+	require.ErrorIs(t, err, apperr.ErrForbidden, "başkasının bakiyesi")
+	auditor := auth.Principal{UserID: uuid.New(), Role: auth.RoleAuditor}
+	_, err = f.ledger.AccountBalance(t.Context(), auditor, a.ID, &now, &now)
+	require.NoError(t, err, "denetçi zaman yolculuğu yapabilir")
+}
+
+func TestBalanceAndEntriesHandlerParameters(t *testing.T) {
+	f := newFixture(t)
+	a := f.customerAccount(t, money.USD)
+	f.fund(t, a, 5_00)
+	h := ledger.NewHandler(f.ledger)
+	r := chi.NewRouter()
+	r.Get("/accounts/{id}/balance", h.Balance)
+	r.Get("/accounts/{id}/entries", h.AccountEntries)
+	get := func(path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequestWithContext(f.ops, http.MethodGet, path, nil))
+		return rec
+	}
+	id := a.ID.String()
+	rec := get("/accounts/" + id + "/balance")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), `"balance_minor":500`)
+	require.Contains(t, rec.Body.String(), `"as_of":null`)
+
+	today := time.Now().UTC().Format(time.DateOnly)
+	rec = get("/accounts/" + id + "/balance?as_of=" + today)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"balance_minor":500`, "yalnız tarih: o günün sonu")
+	rec = get("/accounts/" + id + "/balance?as_of=2020-01-01&known_at=2020-01-01T00:00:00Z")
+	require.Contains(t, rec.Body.String(), `"balance_minor":0`)
+	require.Equal(t, http.StatusBadRequest, get("/accounts/"+id+"/balance?as_of=dün").Code)
+	require.Equal(t, http.StatusBadRequest, get("/accounts/"+id+"/entries?known_at=x").Code)
+	rec = get("/accounts/" + id + "/entries?to=2020-01-01")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"items":[]`)
+	rec = get("/accounts/" + id + "/entries?as_of=" + today + "&from=" + today)
+	require.Contains(t, rec.Body.String(), `"balance_effect_minor":500`)
 }

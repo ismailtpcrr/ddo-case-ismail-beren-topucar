@@ -223,12 +223,15 @@ func (s *Service) Entry(ctx context.Context, id EntryID) (JournalEntry, error) {
 
 // AccountPostings hesabın hareketlerini en yeni önce listeler. Müşteri yalnız kendi hesabının hareketlerini görür
 // (hesap modülü başkasının hesabına 403 döner).
-func (s *Service) AccountPostings(ctx context.Context, p auth.Principal, accountID uuid.UUID, req page.Request) (page.Page[AccountPostingResponse], error) {
+func (s *Service) AccountPostings(ctx context.Context, p auth.Principal, accountID uuid.UUID, f PostingFilter, req page.Request) (page.Page[AccountPostingResponse], error) {
 	acc, err := s.accounts.Get(ctx, p, accountID)
 	if err != nil {
 		return page.Page[AccountPostingResponse]{}, err
 	}
-	list, err := listAccountPostings(ctx, s.tx.DB(), accountID, req)
+	if f.KnownAt != nil && !p.Role.Has(auth.PermLedgerRead) {
+		return page.Page[AccountPostingResponse]{}, ErrTimeTravelForbidden // kayıt zamanı sorguları denetim niteliğindedir
+	}
+	list, err := listAccountPostings(ctx, s.tx.DB(), accountID, f, req)
 	if err != nil {
 		return page.Page[AccountPostingResponse]{}, err
 	}
@@ -275,4 +278,23 @@ func (s *Service) LockAccounts(ctx context.Context, tx db.DBTX, ids ...uuid.UUID
 		return fmt.Errorf("%w: %d of %d accounts found", ErrAccount, len(locked), len(sorted))
 	}
 	return nil
+}
+
+// AccountBalance hesabın asOf anındaki (geçerlilik zamanı) ve knownAt anında bilinen (kayıt zamanı) bakiyesidir.
+// İkisi de nil ise güncel bakiye. Geçmiş tarihli sorgu (zaman yolculuğu) ledger:read izni ister; müşteri yalnız güncel
+// bakiyesini görür.
+func (s *Service) AccountBalance(ctx context.Context, p auth.Principal, accountID uuid.UUID, asOf, knownAt *time.Time) (BalanceResponse, error) {
+	acc, err := s.accounts.Get(ctx, p, accountID)
+	if err != nil {
+		return BalanceResponse{}, err
+	}
+	if (asOf != nil || knownAt != nil) && !p.Role.Has(auth.PermLedgerRead) {
+		return BalanceResponse{}, ErrTimeTravelForbidden
+	}
+	sum, err := balanceAt(ctx, s.tx.DB(), accountID, asOf, knownAt)
+	if err != nil {
+		return BalanceResponse{}, err
+	}
+	return BalanceResponse{AccountID: accountID, Currency: acc.Currency, AsOf: asOf, KnownAt: knownAt,
+		BalanceMinor: naturalDelta(acc.NormalSide, sum)}, nil
 }
