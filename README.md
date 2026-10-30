@@ -17,4 +17,12 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Tüm servisler sağlıklı olduğunda:
+
+| Servis | Adres |
+|---|---|
+| Frontend | http://localhost:3000 |
+| API | http://localhost:8080 (sağlık: `/health`) |
+| PostgreSQL | Host'a açık değil; yalnız compose ağından erişilir |
+
 Sık kullanılan komutlar için `make help`.

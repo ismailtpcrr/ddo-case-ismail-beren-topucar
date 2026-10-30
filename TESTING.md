@@ -13,6 +13,18 @@ Bölümler, ilgili özellik geliştirildikçe doldurulur.
 
 Kimlik doğrulama adımında (A6) eklenecek.
 
+## Sistemi başlatma
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Tek komutla açılış | `cp .env.example .env && docker compose up --build` (ya da `make up`) | Tüm servisler `healthy`; `docker compose ps` ile görülür |
+| `.env` unutulursa | `.env` olmadan `docker compose up` | Compose "`.env eksik - once 'cp .env.example .env' calistirin`" hatasıyla durur |
+| Frontend | Tarayıcıda `http://localhost:3000` | ParaKöprü sayfası açılır |
+| Frontend üzerinden API | `curl -i http://localhost:3000/api/v1/olmayan-uc` | API'nin JSON yanıtı (`404 NOT_FOUND`) nginx üzerinden gelir |
+| Veritabanı dışarı kapalı | `docker compose ps postgres` | Port sütununda yalnız `5432/tcp`; host'a eşleme yok |
+| Root olmayan kullanıcılar | `docker top parakopru-api-1` (postgres ve frontend için de) | UID: api 65532, postgres 70, frontend 101 |
+| Verileri sıfırlama | `make reset-demo` | Veriler silinir, sistem ilk haliyle yeniden açılır |
+
 ## Sistem uçları
 
 Sistem `docker compose up --build` ile ayaktayken:

@@ -1,0 +1,7 @@
+# İmaja yalnız derleme için gereken dosyalar girsin.
+bin/
+*.out
+coverage.*
+.golangci.yml
+Dockerfile
+.dockerignore

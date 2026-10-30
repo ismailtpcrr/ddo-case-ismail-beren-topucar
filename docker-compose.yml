@@ -1,0 +1,75 @@
+# ParaKöprü — tüm sistem tek komutla:
+#   cp .env.example .env
+#   docker compose up --build
+#
+# Kurallar (proje.md §3):
+#   - Her servisin healthcheck'i var; her depends_on "service_healthy" koşuluyla bekler.
+#   - Tüm konteynerler root olmayan kullanıcıyla çalışır.
+#   - Veritabanı host'a açılmaz; yalnız compose ağından erişilir.
+#   - Migrasyon api açılışında otomatik çalışır; elle adım yoktur.
+#
+# Değişkenler .env dosyasından okunur; eksikse compose anlaşılır bir hatayla durur.
+
+name: parakopru
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    user: postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?.env eksik - once 'cp .env.example .env' calistirin}
+      POSTGRES_USER: ${POSTGRES_USER:?.env eksik}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env eksik}
+      # Rol başlangıç betiği (deploy/postgres/initdb) uygulama kullanıcısını bu değerlerle oluşturur.
+      APP_DB_USER: ${APP_DB_USER:?.env eksik}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?.env eksik}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    image: parakopru-backend:local
+    command: ["/app/api"]
+    environment:
+      DATABASE_URL: postgres://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      MIGRATION_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/healthcheck", "http://localhost:8080/health"]
+      interval: 3s
+      timeout: 4s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    image: parakopru-frontend:local
+    ports:
+      - "3000:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
