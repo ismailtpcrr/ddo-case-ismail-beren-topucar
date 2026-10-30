@@ -77,6 +77,29 @@ func Require(perm Permission) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireAny, verilen izinlerden en az birine sahip rolleri geçirir. Aynı uçta farklı kapsamla çalışan
+// durumlar içindir: ör. GET /accounts — müşteri (own_banking) yalnız kendi hesaplarını, ledger:read sahibi
+// roller tüm hesapları görür; kapsamı servis belirler.
+func RequireAny(perms ...Permission) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, ok := PrincipalFrom(r.Context())
+			if !ok {
+				unauthorized(w, r, errMissingToken)
+				return
+			}
+			for _, perm := range perms {
+				if p.Role.Has(perm) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			observability.Logger(r.Context()).Warn("permission denied", slog.Any("permissions", perms))
+			httpx.WriteError(w, r, apperr.ErrForbidden)
+		})
+	}
+}
+
 func unauthorized(w http.ResponseWriter, r *http.Request, err error) {
 	w.Header().Set("WWW-Authenticate", `Bearer realm="parakopru"`)
 	httpx.WriteError(w, r, err)

@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"parakopru/internal/account"
+	"parakopru/internal/customer"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
 	"parakopru/internal/platform/health"
@@ -25,6 +27,8 @@ type routerDeps struct {
 	Tokens         *auth.Tokens
 	Auth           *auth.Handler
 	Audit          *audit.Handler
+	Customers      *customer.Handler
+	Accounts       *account.Handler
 }
 
 // newRouter tüm HTTP uçlarını ve ortak middleware zincirini kurar.
@@ -62,6 +66,14 @@ func newRouter(d routerDeps) http.Handler {
 
 			r.With(auth.Require(auth.PermProfileRead)).Get("/me", d.Auth.Me)
 			r.With(auth.Require(auth.PermAuditRead)).Get("/audit-log", d.Audit.List)
+
+			// Müşteri ve hesap yönetimi (F-1). Müşteri yalnız kendi hesaplarını görür (serviste kontrol edilir).
+			r.With(auth.Require(auth.PermCustomersWrite)).Post("/customers", d.Customers.Create)
+			r.With(auth.Require(auth.PermLedgerRead)).Get("/customers", d.Customers.List)
+			r.With(auth.Require(auth.PermLedgerRead)).Get("/customers/{id}", d.Customers.Get)
+			r.With(auth.Require(auth.PermCustomersWrite)).Post("/accounts", d.Accounts.Open)
+			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts", d.Accounts.List)
+			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts/{id}", d.Accounts.Get)
 		})
 	})
 

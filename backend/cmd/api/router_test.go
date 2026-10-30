@@ -16,6 +16,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"parakopru/internal/account"
+	"parakopru/internal/customer"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
 	"parakopru/internal/platform/clock"
@@ -38,6 +40,27 @@ func TestRoleWithoutPermissionGets403(t *testing.T) {
 		rec := s.do(t, http.MethodGet, "/api/v1/audit-log", http.Header{"Authorization": {"Bearer " + token}})
 		require.Equal(t, http.StatusForbidden, rec.Code, role)
 		require.Equal(t, "FORBIDDEN", errorCode(t, rec))
+	}
+}
+
+// Hesap açma yalnız operasyon uzmanının işi; müşteri tüm müşteri listesini göremez (PLAN.md §5.10).
+func TestCustomerAndAccountWritePermissions(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+	tokens := auth.NewTokens(testSecret, time.Minute, time.Hour, clock.System{})
+	for _, tc := range []struct {
+		role         auth.Role
+		method, path string
+	}{
+		{auth.RoleCustomer, http.MethodPost, "/api/v1/accounts"},
+		{auth.RoleAuditor, http.MethodPost, "/api/v1/accounts"},
+		{auth.RoleRiskAnalyst, http.MethodPost, "/api/v1/customers"},
+		{auth.RoleCustomer, http.MethodGet, "/api/v1/customers"},
+		{auth.RoleSystem, http.MethodGet, "/api/v1/accounts"},
+	} {
+		token, _, err := tokens.IssueAccess(uuid.New(), tc.role)
+		require.NoError(t, err)
+		rec := s.do(t, tc.method, tc.path, http.Header{"Authorization": {"Bearer " + token}})
+		require.Equal(t, http.StatusForbidden, rec.Code, "%s %s %s", tc.role, tc.method, tc.path)
 	}
 }
 
@@ -72,6 +95,8 @@ func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) 
 		Tokens:         auth.NewTokens(testSecret, time.Minute, time.Hour, clock.System{}),
 		Auth:           auth.NewHandler(nil, false), // bu testler servis gerektiren uçlara ulaşmaz
 		Audit:          audit.NewHandler(nil),
+		Customers:      customer.NewHandler(nil),
+		Accounts:       account.NewHandler(nil),
 	})
 	if extra != nil {
 		extra(h.(chi.Router))

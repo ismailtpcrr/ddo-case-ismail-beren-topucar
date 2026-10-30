@@ -79,3 +79,55 @@ Content-Type: application/json
 ### Yetki ihlali: müşteri denetim kaydını göremez — 403 FORBIDDEN
 GET {{baseUrl}}/api/v1/audit-log
 Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+# ---------------------------------------------------------------------------
+# Müşteri ve hesap yönetimi (F-1)
+# ---------------------------------------------------------------------------
+
+### Operasyon uzmanı olarak giriş
+# @name loginOps
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "operasyon@parakopru.test", "password": "{{password}}"}
+
+### Müşteri aç (operasyon) — 201; aynı kimlik no ikinci kez → 409 CUSTOMER_EXISTS
+# @name newCustomer
+POST {{baseUrl}}/api/v1/customers
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+
+{"full_name": "Ayşe Yılmaz", "national_id": "{{$randomInt 30000000000 39999999999}}"}
+
+### Vadeli EUR hesap aç (operasyon) — 201, IBAN otomatik
+POST {{baseUrl}}/api/v1/accounts
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+
+{"customer_id": "{{newCustomer.response.body.id}}", "kind": "TIME_DEPOSIT", "currency": "EUR", "maturity_date": "2027-06-30"}
+
+### Vadesiz TRY hesap aç (operasyon)
+POST {{baseUrl}}/api/v1/accounts
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+
+{"customer_id": "{{newCustomer.response.body.id}}", "kind": "CHECKING", "currency": "TRY"}
+
+### Müşterinin hesapları (operasyon, süzgeçle)
+GET {{baseUrl}}/api/v1/accounts?customer_id={{newCustomer.response.body.id}}
+Authorization: Bearer {{loginOps.response.body.access_token}}
+
+### Müşteriler listesi (operasyon)
+GET {{baseUrl}}/api/v1/customers?limit=20
+Authorization: Bearer {{loginOps.response.body.access_token}}
+
+### Demo müşteri kendi hesaplarını görür (vadesiz TRY/USD/EUR + vadeli TRY)
+GET {{baseUrl}}/api/v1/accounts
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Yetki ihlali: müşteri hesap açamaz — 403
+POST {{baseUrl}}/api/v1/accounts
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+
+{"customer_id": "{{newCustomer.response.body.id}}", "kind": "CHECKING", "currency": "TRY"}

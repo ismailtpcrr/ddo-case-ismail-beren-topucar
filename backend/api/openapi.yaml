@@ -114,6 +114,112 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/v1/customers:
+    post:
+      summary: Müşteri aç
+      description: "İzin: `customers:write` (operasyon uzmanı). Denetim kaydına `customer.create` yazılır."
+      tags: [Müşteri ve hesap]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerCreate" }
+      responses:
+        "201": { description: Açıldı, content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: Aynı kimlik numarasıyla müşteri var (`CUSTOMER_EXISTS`)
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    get:
+      summary: Müşteriler (en yeni önce, keyset sayfalı)
+      description: "İzin: `ledger:read` (operasyon, risk, uyum, denetçi)."
+      tags: [Müşteri ve hesap]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Customer" } }
+                  next_cursor: { type: string, nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/customers/{id}:
+    get:
+      summary: Müşteri
+      description: "İzin: `ledger:read`."
+      tags: [Müşteri ve hesap]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Müşteri, content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/accounts:
+    post:
+      summary: Müşteri hesabı aç (vadesiz ya da vadeli; TRY/USD/EUR)
+      description: |
+        İzin: `customers:write` (operasyon uzmanı). IBAN otomatik üretilir (TR, kontrol haneli).
+        Vadeli hesapta ileri bir `maturity_date` zorunlu, vadesizde yasak. Denetim kaydına `account.open` yazılır.
+      tags: [Müşteri ve hesap]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccountOpen" }
+            example: { customer_id: 01a18dce-fd1b-76df-b41d-47b121bde845, kind: TIME_DEPOSIT, currency: EUR, maturity_date: "2027-06-30" }
+      responses:
+        "201": { description: Açıldı, content: { application/json: { schema: { $ref: "#/components/schemas/Account" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    get:
+      summary: Hesaplar ve bakiyeleri
+      description: |
+        İzin: `own_banking` ya da `ledger:read`. Müşteri yalnız kendi hesaplarını görür (`customer_id` yok sayılır).
+        `ledger:read` sahibi roller tüm hesapları (bankanın iç hesapları dahil) ya da `customer_id` ile süzülmüş listeyi görür.
+      tags: [Müşteri ve hesap]
+      parameters:
+        - { name: customer_id, in: query, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Account" } }
+                  next_cursor: { type: string, nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/accounts/{id}:
+    get:
+      summary: Hesap ve bakiyesi
+      description: "İzin: `own_banking` ya da `ledger:read`. Müşteri başka bir müşterinin hesabını isterse 403."
+      tags: [Müşteri ve hesap]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Hesap, content: { application/json: { schema: { $ref: "#/components/schemas/Account" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /health:
     get:
       summary: Sağlık durumu (veritabanı bağlantısı dahil)
@@ -170,6 +276,53 @@ components:
       schema: { type: string, maxLength: 255 }
 
   schemas:
+    CustomerCreate:
+      type: object
+      required: [full_name, national_id]
+      additionalProperties: false
+      properties:
+        full_name: { type: string, minLength: 2, maxLength: 200 }
+        national_id: { type: string, pattern: "^[0-9]{11}$", description: "Kurgusal T.C. kimlik no; benzersiz" }
+        email: { type: string, format: email }
+
+    Customer:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid, nullable: true, description: "Giriş hesabı varsa" }
+        full_name: { type: string }
+        national_id: { type: string }
+        email: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    AccountOpen:
+      type: object
+      required: [customer_id, kind, currency]
+      additionalProperties: false
+      properties:
+        customer_id: { type: string, format: uuid }
+        kind: { type: string, enum: [CHECKING, TIME_DEPOSIT] }
+        currency: { type: string, enum: [TRY, USD, EUR] }
+        maturity_date: { type: string, format: date, description: "Yalnız TIME_DEPOSIT; bugünden sonra" }
+
+    Account:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        customer_id: { type: string, format: uuid, nullable: true, description: "Bankanın iç hesaplarında null" }
+        kind:
+          type: string
+          enum: [CHECKING, TIME_DEPOSIT, NOSTRO, EXTERNAL_CLEARING, CARD_SETTLEMENT, INTEREST_EXPENSE, WITHHOLDING_TAX, FX_POSITION, SUSPENSE, OPENING_EQUITY]
+        currency: { type: string, enum: [TRY, USD, EUR] }
+        name: { type: string }
+        iban: { type: string, nullable: true, example: TR450099900000000000000001 }
+        interest_product: { type: string, nullable: true }
+        maturity_date: { type: string, format: date, nullable: true }
+        status: { type: string, enum: [ACTIVE, CLOSED] }
+        opened_at: { type: string, format: date-time }
+        balance_minor: { type: integer, format: int64, description: "Bakiye (kuruş/sent)" }
+        held_minor: { type: integer, format: int64, description: "Aktif kart provizyonları" }
+        available_minor: { type: integer, format: int64, description: "Kullanılabilir = bakiye − provizyonlar" }
     AuditRecord:
       type: object
       required: [id, at, actor_role, action, entity]

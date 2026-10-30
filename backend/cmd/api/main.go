@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"parakopru/internal/account"
+	"parakopru/internal/customer"
 	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
 	"parakopru/internal/platform/clock"
@@ -65,8 +67,13 @@ func run() error {
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, clk)
 	authSvc := auth.NewService(txm, auth.Repo{}, tokens, idGen, clk)
 
-	// Temel seed (her rol için demo hesap). Var olanlara dokunmaz; her açılışta güvenle çalışır.
-	if _, err := authSvc.SeedDemoUsers(ctx, cfg.DemoPassword); err != nil {
+	// İş modülleri.
+	recorder := audit.NewRecorder(idGen)
+	customerSvc := customer.NewService(txm, idGen, recorder)
+	accountSvc := account.NewService(txm, customerSvc, idGen, clk, recorder)
+
+	// Temel seed: demo kullanıcılar, iç hesaplar, demo müşteri. Var olana dokunmaz; her açılışta güvenle çalışır.
+	if err := seedBase(ctx, log, txm, clk, cfg.DemoPassword, authSvc, customerSvc, accountSvc); err != nil {
 		return err
 	}
 
@@ -78,6 +85,8 @@ func run() error {
 		Tokens:         tokens,
 		Auth:           auth.NewHandler(authSvc, cfg.CookieSecure),
 		Audit:          audit.NewHandler(audit.NewService(pool)),
+		Customers:      customer.NewHandler(customerSvc),
+		Accounts:       account.NewHandler(accountSvc),
 	})
 
 	srv := &http.Server{

@@ -185,3 +185,24 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   - Float yasağını bütün projeye uygulamak: risk modülündeki mesafe/hız hesabı (imkânsız seyahat) kayan nokta gerektirir.
 - **Sonuçlar / ödünleşimler:** int64 kuruş ±92 katrilyon TL'ye kadar yeter. Desteklenen üç para birimi de 2 basamaklıdır;
   farklı basamaklı bir para birimi (ör. JPY) eklenirse basamak sayısı para birimine bağlanmalıdır (tek bir sabit değişir).
+
+## K-12 Hesap modeli: doğal taraf, iç hesap planı, IBAN ve nesne düzeyinde yetki
+
+- **Bağlam:** PLAN.md §5.1: müşteri hesapları (vadesiz/vadeli, TRY/USD/EUR), her para birimi için 8 iç hesap,
+  `account_balances` özeti ve `CHECK (allow_negative OR balance_minor - held_minor >= 0)`. §5.10: müşteri yalnız kendi hesabını görür.
+- **Karar:**
+  - Her hesabın `normal_side`'ı vardır. Müşteri hesapları banka için borçtur (CREDIT), NOSTRO ve faiz gideri DEBIT'tir.
+    `balance_minor` bu tarafa göre doğal işaretli tutulur; müşteri hesabında pozitif bakiye müşterinin parasıdır.
+  - İç hesaplar eksiye düşebilir (`allow_negative`). Doğrulukları bakiye kısıtıyla değil, defter değişmezleriyle korunur
+    (B3/B4: her kayıtta borç = alacak, özet = türetilmiş bakiye).
+  - Müşteri hesaplarına kontrol haneli (mod 97) TR IBAN üretilir: kurgusal banka kodu + veritabanı dizisinden 16 haneli
+    hesap no. Dış transferde alıcı IBAN'ı doğrulanabilir.
+  - Müşteri hesabı türüne göre bir faiz ürünü alır (`CHECKING_STANDARD`, `TIME_DEPOSIT_STANDARD`); faiz oranları (H1)
+    ürün + para birimine bağlanır.
+  - Başka bir müşterinin hesabına erişim **403** döner (proje.md §7: "yetkisiz erişim 401/403 ile reddedilmeli").
+  - `GET /accounts` tek uçtur: müşteri kendi hesaplarını, `ledger:read` sahibi roller hepsini görür (`RequireAny` + serviste kapsam).
+- **Değerlendirilen alternatifler:**
+  - Başkasının hesabına 404 döndürmek (hesabın varlığını gizlemek): şartname 401/403 istediği için 403 seçildi. Hesap
+    kimlikleri tahmin edilemez UUID'ler olduğundan varlığı sızdırmanın pratik riski düşüktür.
+  - Bakiye işaretini her yerde "+ borç" olarak tutmak: müşteri ekranında ve kısıtta işaret çevirmek gerekir; hata kaynağı olur.
+- **Sonuçlar / ödünleşimler:** Demo müşteri ve hesapları api açılışında oluşur; bakiyeleri açılış kaydıyla (defterden) B6'da gelir.

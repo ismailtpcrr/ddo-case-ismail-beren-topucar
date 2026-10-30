@@ -119,6 +119,19 @@ Veritabanı testleri gerçek bir PostgreSQL 16 konteyneri açar (testcontainers)
 Her test paketi kendi konteynerini açar, migrasyonları uygular ve iş bitince kapatır.
 `cd backend && go test -short ./...` veritabanı testlerini atlayıp yalnız birim testlerini çalıştırır.
 
+## Müşteri ve hesaplar
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Demo müşterinin hesapları | Müşteri token'ıyla `GET /api/v1/accounts` | Vadesiz TRY, USD, EUR ve vadeli TRY; her birinde IBAN, bakiye, bloke, kullanılabilir bakiye |
+| Müşteri ve hesap açma | Operasyon token'ıyla [requests.http](requests.http) "Müşteri aç" → "Vadeli EUR hesap aç" | `201`; IBAN üretilir; denetim kaydına `customer.create` ve `account.open` düşer |
+| Vade kuralları | Vadeli hesapta `maturity_date` olmadan / geçmiş tarihle; vadesizde tarihle | `400 VALIDATION_ERROR` |
+| Aynı kimlik numarası | Aynı `national_id` ile ikinci müşteri | `409 CUSTOMER_EXISTS` |
+| Müşteri başkasının hesabını göremez | Müşteri token'ıyla başka bir müşterinin `GET /api/v1/accounts/{id}` | `403 FORBIDDEN` |
+| Müşteri hesap açamaz | Müşteri token'ıyla `POST /api/v1/accounts` | `403 FORBIDDEN` |
+| Müşteri hesabı eksiye düşemez (veritabanı) | `go test -run TestCustomerBalanceCannotGoNegative ./internal/account/` | Bakiyeyi eksiye ya da blokeyi bakiyenin üstüne çeken UPDATE `CHECK` kısıtına takılır |
+| İç hesap planı | Operasyon token'ıyla `GET /api/v1/accounts` | Her para birimi için 8 iç hesap (NOSTRO, EXTERNAL_CLEARING, …, OPENING_EQUITY) |
+
 ## Para tipi ve yuvarlama
 
 | Ne denenir | Nasıl denenir | Beklenen sonuç |

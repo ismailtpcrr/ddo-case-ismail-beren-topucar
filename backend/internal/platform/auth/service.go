@@ -164,6 +164,11 @@ func (s *Service) Me(ctx context.Context, userID uuid.UUID) (User, error) {
 	return u, err
 }
 
+// UserByEmail e-postaya göre kullanıcıyı getirir (seed için).
+func (s *Service) UserByEmail(ctx context.Context, email string) (User, error) {
+	return s.repo.UserByEmail(ctx, s.tx.DB(), NormalizeEmail(email))
+}
+
 func (s *Service) issue(u User, refreshID uuid.UUID) (Session, error) {
 	access, accessExp, err := s.tokens.IssueAccess(u.ID, u.Role)
 	if err != nil {

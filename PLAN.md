@@ -536,7 +536,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 
 ### B — Para ve defter (T-1, F-1, F-2)
 - [x] B1 `feat(money)`: `Amount`, para birimi, banker's rounding + birim/property testleri
-- [ ] B2 `feat(account)`: müşteriler, hesaplar (vadesiz/vadeli, TRY/USD/EUR), iç hesap planı, `account_balances`
+- [x] B2 `feat(account)`: müşteriler, hesaplar (vadesiz/vadeli, TRY/USD/EUR), iç hesap planı, `account_balances`
 - [ ] B3 `feat(ledger)`: yevmiye + satırlar, borç = alacak (Go + DB), değişmezlik trigger'ları, özet güncelleme, sıralı kilit, ters kayıt
 - [ ] B4 `feat(transfer)`: iç transfer + Idempotency-Key, `/admin/invariants`
 - [ ] B5 `test(ledger)`: 10.000 eşzamanlı transfer para korunumu testi + property test
