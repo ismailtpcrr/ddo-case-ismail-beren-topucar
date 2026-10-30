@@ -85,3 +85,30 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
 - **Sonuçlar / ödünleşimler:** Uygulama rolü tablo oluşturamaz ve silemez; testle kanıtlı (`42501 insufficient_privilege`).
   Sahip rolün süper kullanıcı olması demo ortamı içindir; WAL arşivi ve `pg_basebackup` (T-7) için gereken yetkileri de sağlar.
   Gerçek bir ortamda migrasyon için süper kullanıcı olmayan ayrı bir sahip rol açılır.
+
+## K-07 Kimlik doğrulamanın ayrıntıları
+
+- **Bağlam:** proje.md §7: parola özeti argon2id ya da bcrypt; JWT (access + refresh); her uçta yetki kontrolü; 401/403.
+  PLAN.md: access token bellekte, refresh token `HttpOnly` + `SameSite=Strict` çerezde; `refresh_tokens` tablosu.
+- **Karar:**
+  - **Parola:** argon2id, OWASP önerisi `m=19 MiB, t=2, p=1`. Parametreler özetin içinde (PHC biçimi) saklanır.
+    Özetten okunan parametreler sınırlandırılır; bozuk bir özet sunucuyu bellek tüketerek düşüremez (fuzz testiyle denendi).
+  - **Access token:** HS256 JWT, 15 dk; algoritma sabit (`alg: none` reddedilir); `typ=access`.
+  - **Refresh token:** o da HS256 JWT (`typ=refresh`, 7 gün), ama kimliği (`jti`) `refresh_tokens` tablosunda tutulur.
+    Her yenilemede eski token iptal edilir, yenisi verilir (rotasyon). İptal edilmiş bir token tekrar gelirse çalınmış
+    sayılır ve kullanıcının açık bütün oturumları kapatılır.
+  - **Yetki:** her korunan uç `Authenticate` + `Require(izin)` arkasındadır; `/me` için de her rolde bulunan
+    `profile:read` izni istenir. Rol → izin tablosu kodda tek yerdedir (`auth/rbac.go`) ve PLAN.md §5.10 ile birebir aynı
+    olduğu testle korunur.
+  - **Giriş hataları:** yanlış parola ile kayıtlı olmayan e-posta aynı yanıtı verir; kayıtlı olmayan e-postada da bir
+    argon2id hesabı yapılır, yanıt süresinden e-postanın varlığı anlaşılamaz.
+  - **Çerezin `Secure` bayrağı** `COOKIE_SECURE` ile açılır; yerel demo `http://localhost` üzerinde çalıştığı için varsayılan kapalıdır.
+- **Değerlendirilen alternatifler:**
+  - Refresh token'ı opak rastgele değer olarak saklamak: şartname "JWT (access + refresh)" dediği için o da JWT yapıldı;
+    iptal edilebilirlik `jti` kaydıyla sağlandı.
+  - RFC 9106'daki 64 MiB argon2id: tek girişte daha güçlü, ama yük testinde yüzlerce eşzamanlı girişte bellek tükenir.
+  - Sunucu taraflı oturum: her istekte veritabanı okuması gerekir; access token'ın imzayla doğrulanması daha hızlıdır.
+- **Sonuçlar / ödünleşimler:**
+  - Access token iptal edilemez; en fazla 15 dk geçerli kalır. Çıkışta yalnız refresh token iptal edilir.
+  - Aynı refresh token'la eşzamanlı iki yenileme isteğinde (ör. iki sekme) biri kazanır, diğeri iptal edilmiş token
+    gördüğü için bütün oturumlar kapanır. Arayüz aynı anda tek yenileme isteği gönderecek şekilde yazılır (D1).

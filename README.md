@@ -26,3 +26,17 @@ Tüm servisler sağlıklı olduğunda:
 | PostgreSQL | Host'a açık değil; yalnız compose ağından erişilir |
 
 Sık kullanılan komutlar için `make help`.
+
+## Demo hesaplar
+
+Her rol için bir hesap, sistem ilk açıldığında otomatik oluşturulur. Hepsinin parolası `.env`'deki
+`DEMO_PASSWORD`'dır (varsayılan **`ParaKopru.2026`**).
+
+| Rol | E-posta |
+|---|---|
+| Müşteri | `musteri@parakopru.test` |
+| Operasyon uzmanı | `operasyon@parakopru.test` |
+| Risk analisti | `risk@parakopru.test` |
+| Uyum (compliance) uzmanı | `uyum@parakopru.test` |
+| Denetçi | `denetci@parakopru.test` |
+| Sistem (zamanlanmış işler) | `sistem@parakopru.test` |

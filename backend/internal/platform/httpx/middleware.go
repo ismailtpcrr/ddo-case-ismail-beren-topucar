@@ -27,10 +27,26 @@ var validRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 type requestIDKey struct{}
 
+// requestInfo, dış middleware'lerin (AccessLog) iç katmanlarda öğrenilen bilgiyi (kullanıcı) görebilmesi için
+// isteğin başında context'e konan değiştirilebilir kayıttır. Her istek kendi kaydını alır; eşzamanlı paylaşım yoktur.
+type requestInfo struct {
+	userID string
+}
+
+type requestInfoKey struct{}
+
 // RequestIDFrom context'teki istek kimliğini döndürür.
 func RequestIDFrom(ctx context.Context) string {
 	id, _ := ctx.Value(requestIDKey{}).(string)
 	return id
+}
+
+// SetUserID isteği yapan kullanıcıyı istek kaydına yazar; AccessLog bunu user_id olarak loglar.
+// Kimlik doğrulama middleware'i çağırır.
+func SetUserID(ctx context.Context, userID string) {
+	if info, ok := ctx.Value(requestInfoKey{}).(*requestInfo); ok {
+		info.userID = userID
+	}
 }
 
 // RequestID her isteğe bir kimlik verir: geçerli bir X-Request-ID geldiyse onu kullanır
@@ -46,6 +62,7 @@ func RequestID(gen ids.Generator, base *slog.Logger) func(http.Handler) http.Han
 			w.Header().Set(RequestIDHeader, id)
 
 			ctx := context.WithValue(r.Context(), requestIDKey{}, id)
+			ctx = context.WithValue(ctx, requestInfoKey{}, &requestInfo{})
 			ctx = observability.WithLogger(ctx, base.With(slog.String("request_id", id)))
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -55,7 +72,8 @@ func RequestID(gen ids.Generator, base *slog.Logger) func(http.Handler) http.Han
 // Sağlık ve metrik uçları birkaç saniyede bir yoklanır; başarılı olanlar yalnız debug seviyesinde loglanır.
 var quietPaths = map[string]bool{"/health": true, "/metrics": true}
 
-// AccessLog her isteği tek bir JSON satırında loglar: yöntem, yol, rota, durum, boyut, süre.
+// AccessLog her isteği tek bir JSON satırında loglar: yöntem, yol, rota, durum, boyut, süre ve
+// (giriş yapılmışsa) user_id.
 // İstek gövdesi ve başlıklar (Authorization, Cookie) loglanmaz.
 func AccessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -78,14 +96,18 @@ func AccessLog(next http.Handler) http.Handler {
 		if rc := chi.RouteContext(r.Context()); rc != nil {
 			route = rc.RoutePattern()
 		}
-		observability.Logger(r.Context()).LogAttrs(r.Context(), level, "http request",
+		attrs := []slog.Attr{
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.String("route", route),
 			slog.Int("status", status),
 			slog.Int("bytes", ww.BytesWritten()),
 			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
-		)
+		}
+		if info, ok := r.Context().Value(requestInfoKey{}).(*requestInfo); ok && info.userID != "" {
+			attrs = append(attrs, slog.String("user_id", info.userID))
+		}
+		observability.Logger(r.Context()).LogAttrs(r.Context(), level, "http request", attrs...)
 	})
 }
 

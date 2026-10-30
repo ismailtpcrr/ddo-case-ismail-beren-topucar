@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"parakopru/internal/platform/auth"
+	"parakopru/internal/platform/clock"
 	"parakopru/internal/platform/config"
 	"parakopru/internal/platform/db"
 	"parakopru/internal/platform/health"
@@ -42,8 +44,8 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Önce veritabanının hazır olmasını bekle, sonra şemayı güncelle. HTTP sunucusu (dolayısıyla /health)
-	// migrasyon bitmeden açılmaz; compose'daki bağımlı servisler eksik şemayla çalışmaya başlamaz.
+	// Önce veritabanının hazır olmasını bekle, sonra şemayı güncelle ve temel seed'i yap. HTTP sunucusu
+	// (dolayısıyla /health) bunlar bitmeden açılmaz; compose'daki bağımlı servisler eksik veriyle başlamaz.
 	pool, err := db.Connect(ctx, cfg.DatabaseURL, cfg.DBMaxConns)
 	if err != nil {
 		return err
@@ -53,11 +55,27 @@ func run() error {
 		return err
 	}
 
+	// Ortak bağımlılıklar.
+	clk := clock.System{}
+	idGen := ids.V7{}
+	txm := db.NewTxManager(pool)
+
+	// Kimlik doğrulama.
+	tokens := auth.NewTokens(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, clk)
+	authSvc := auth.NewService(txm, auth.Repo{}, tokens, idGen, clk)
+
+	// Temel seed (her rol için demo hesap). Var olanlara dokunmaz; her açılışta güvenle çalışır.
+	if _, err := authSvc.SeedDemoUsers(ctx, cfg.DemoPassword); err != nil {
+		return err
+	}
+
 	handler := newRouter(routerDeps{
 		Logger:         log,
-		IDs:            ids.V7{},
+		IDs:            idGen,
 		RequestTimeout: cfg.RequestTimeout,
 		HealthChecks:   []health.Check{{Name: "database", Run: pool.Ping}},
+		Tokens:         tokens,
+		Auth:           auth.NewHandler(authSvc, cfg.CookieSecure),
 	})
 
 	srv := &http.Server{

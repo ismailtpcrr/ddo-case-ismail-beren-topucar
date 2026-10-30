@@ -1,7 +1,9 @@
 # ParaKöprü — elle deneme koleksiyonu (VS Code REST Client eklentisi)
 # Sistem ayaktayken (docker compose up) her isteğin üstündeki "Send Request" ile çalıştırılır.
+# Demo hesapların parolası .env'deki DEMO_PASSWORD'dır (varsayılan: ParaKopru.2026).
 
 @baseUrl = http://localhost:8080
+@password = ParaKopru.2026
 
 ### Sağlık kontrolü — kimlik doğrulaması gerekmez; veritabanı erişilemezse 503
 GET {{baseUrl}}/health
@@ -12,3 +14,42 @@ GET {{baseUrl}}/api/v1/olmayan-uc
 ### İstek kimliği — gönderilen X-Request-ID yanıtta aynen döner
 GET {{baseUrl}}/health
 X-Request-ID: deneme-12345
+
+# ---------------------------------------------------------------------------
+# Kimlik doğrulama
+# ---------------------------------------------------------------------------
+
+### Giriş (operasyon uzmanı) — access token gövdede, refresh token pk_refresh çerezinde
+# @name login
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "operasyon@parakopru.test", "password": "{{password}}"}
+
+### Oturumdaki kullanıcı ve izinleri — önce "Giriş" isteğini çalıştırın
+GET {{baseUrl}}/api/v1/me
+Authorization: Bearer {{login.response.body.access_token}}
+
+### Token olmadan korunan uç — 401 UNAUTHORIZED
+GET {{baseUrl}}/api/v1/me
+
+### Yanlış parola — 401 INVALID_CREDENTIALS
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "operasyon@parakopru.test", "password": "yanlis-parola"}
+
+### Oturumu yenile — REST Client çerezi otomatik gönderir; yeni access token döner
+POST {{baseUrl}}/api/v1/auth/refresh
+
+### Çıkış — refresh token iptal edilir, çerez silinir (204)
+POST {{baseUrl}}/api/v1/auth/logout
+
+### Çıkıştan sonra yenileme — 401 SESSION_EXPIRED
+POST {{baseUrl}}/api/v1/auth/refresh
+
+### Diğer demo hesaplarla giriş (rol: CUSTOMER, RISK_ANALYST, COMPLIANCE, AUDITOR, SYSTEM)
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "musteri@parakopru.test", "password": "{{password}}"}

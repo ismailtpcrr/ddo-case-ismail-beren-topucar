@@ -15,11 +15,30 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 
+	"parakopru/internal/platform/auth"
+	"parakopru/internal/platform/clock"
 	"parakopru/internal/platform/health"
 	"parakopru/internal/platform/httpx"
 	"parakopru/internal/platform/ids"
 	"parakopru/internal/platform/observability"
 )
+
+const testSecret = "router-test-secret-0123456789-0123456789"
+
+// Korunan uçlar token olmadan ya da geçersiz token'la 401 döner; servis hiç çağrılmaz.
+func TestProtectedRoutesRequireToken(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+
+	rec := s.do(t, http.MethodGet, "/api/v1/me", nil)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Equal(t, "UNAUTHORIZED", errorCode(t, rec))
+	require.Contains(t, rec.Header().Get("WWW-Authenticate"), "Bearer")
+
+	for _, header := range []string{"Bearer bozuk.token.degeri", "Basic dXNlcjpwYXNz", "Bearer"} {
+		rec = s.do(t, http.MethodGet, "/api/v1/me", http.Header{"Authorization": {header}})
+		require.Equal(t, http.StatusUnauthorized, rec.Code, header)
+	}
+}
 
 type testServer struct {
 	handler http.Handler
@@ -34,6 +53,8 @@ func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) 
 		IDs:            &ids.Sequence{},
 		RequestTimeout: 50 * time.Millisecond,
 		HealthChecks:   checks,
+		Tokens:         auth.NewTokens(testSecret, time.Minute, time.Hour, clock.System{}),
+		Auth:           auth.NewHandler(nil, false), // bu testler servis gerektiren uçlara ulaşmaz
 	})
 	if extra != nil {
 		extra(h.(chi.Router))

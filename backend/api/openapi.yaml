@@ -9,10 +9,83 @@ info:
     - Tutarlar her zaman tam sayı `amount_minor` (kuruş/sent) + `currency` olarak taşınır; ondalıklı sayı kullanılmaz.
     - Her hata `{"error":{"code","message"}}` biçimindedir.
     - Her yanıtta `X-Request-ID` başlığı döner; istekte geçerli bir `X-Request-ID` gönderilirse aynısı kullanılır.
+    - Kimlik doğrulama: `POST /api/v1/auth/login` ile alınan access token `Authorization: Bearer <token>` başlığıyla gönderilir.
+      Refresh token `pk_refresh` adlı HttpOnly çerezdedir. Token yok ya da geçersizse 401, rolün izni yoksa 403 döner.
 servers:
   - url: http://localhost:8080
 
+# Varsayılan: her uç access token ister. Girişsiz uçlar kendi tanımlarında `security: []` ile belirtilir.
+security:
+  - bearerAuth: []
+
 paths:
+  /api/v1/auth/login:
+    post:
+      summary: Giriş
+      description: E-posta ve parolayı doğrular; access token'ı gövdede, refresh token'ı HttpOnly çerezde döner.
+      tags: [Kimlik]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+            example: { email: operasyon@parakopru.test, password: ParaKopru.2026 }
+      responses:
+        "200":
+          description: Giriş başarılı
+          headers:
+            Set-Cookie:
+              description: "`pk_refresh=<token>; Path=/api/v1/auth; HttpOnly; SameSite=Strict`"
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: E-posta ya da parola hatalı (`INVALID_CREDENTIALS`); hangisinin yanlış olduğu söylenmez
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Oturumu yenile
+      description: |
+        `pk_refresh` çerezindeki token karşılığında yeni access ve refresh token verir; eski refresh token iptal edilir.
+        İptal edilmiş bir token tekrar kullanılırsa kullanıcının bütün oturumları kapatılır.
+      tags: [Kimlik]
+      security: []
+      responses:
+        "200":
+          description: Yeni oturum
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "401":
+          description: Çerez yok, geçersiz, süresi dolmuş ya da iptal edilmiş (`SESSION_EXPIRED`)
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/auth/logout:
+    post:
+      summary: Çıkış
+      description: Refresh token'ı iptal eder ve çerezi siler. Çerez yoksa da 204 döner.
+      tags: [Kimlik]
+      security: []
+      responses:
+        "204": { description: Çıkış yapıldı }
+
+  /api/v1/me:
+    get:
+      summary: Oturumdaki kullanıcı ve izinleri
+      description: "İzin: `profile:read` (her rol). Arayüz menüyü `permissions` listesine göre süzer."
+      tags: [Kimlik]
+      responses:
+        "200":
+          description: Kullanıcı
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /health:
     get:
       summary: Sağlık durumu (veritabanı bağlantısı dahil)
@@ -34,12 +107,52 @@ paths:
               example: { status: unavailable, checks: { database: unavailable } }
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   headers:
     RequestID:
       description: İsteğin kimliği (loglarda `request_id`)
       schema: { type: string }
 
   schemas:
+    Role:
+      type: string
+      enum: [CUSTOMER, OPERATIONS, RISK_ANALYST, COMPLIANCE, AUDITOR, SYSTEM]
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email: { type: string, maxLength: 254 }
+        password: { type: string, maxLength: 128, format: password }
+
+    User:
+      type: object
+      required: [id, email, full_name, role, permissions]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        full_name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        permissions:
+          type: array
+          items: { type: string }
+          example: ["ledger:read", "profile:read", "transfers:approve"]
+
+    Session:
+      type: object
+      required: [access_token, token_type, expires_at, user]
+      properties:
+        access_token: { type: string, description: "JWT (HS256); varsayılan ömür 15 dk" }
+        token_type: { type: string, enum: [Bearer] }
+        expires_at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
+
     Health:
       type: object
       required: [status, checks]
@@ -67,6 +180,12 @@ components:
               example: currency zorunludur.
 
   responses:
+    Unauthorized:
+      description: Token yok ya da geçersiz (`UNAUTHORIZED`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Forbidden:
+      description: Rolün bu işlem için izni yok (`FORBIDDEN`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     BadRequest:
       description: Girdi doğrulama hatası (`VALIDATION_ERROR`)
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }

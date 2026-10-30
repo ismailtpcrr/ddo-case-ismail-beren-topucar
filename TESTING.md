@@ -11,7 +11,32 @@ Bölümler, ilgili özellik geliştirildikçe doldurulur.
 
 ## Demo hesaplar
 
-Kimlik doğrulama adımında (A6) eklenecek.
+Her rol için bir hesap, api ilk açıldığında otomatik oluşturulur. Hepsinin parolası `.env`'deki
+`DEMO_PASSWORD`'dır (varsayılan **`ParaKopru.2026`**).
+
+| Rol | E-posta |
+|---|---|
+| Müşteri | `musteri@parakopru.test` |
+| Operasyon uzmanı | `operasyon@parakopru.test` |
+| Risk analisti | `risk@parakopru.test` |
+| Uyum (compliance) uzmanı | `uyum@parakopru.test` |
+| Denetçi | `denetci@parakopru.test` |
+| Sistem (zamanlanmış işler) | `sistem@parakopru.test` |
+
+## Kimlik doğrulama ve yetki
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Giriş | `curl -i -H 'Content-Type: application/json' -d '{"email":"operasyon@parakopru.test","password":"ParaKopru.2026"}' http://localhost:8080/api/v1/auth/login` | `200`; gövdede `access_token` ve `user.permissions`; `Set-Cookie: pk_refresh=…; HttpOnly; SameSite=Strict` |
+| Yanlış parola | Aynı istek, yanlış parolayla | `401 INVALID_CREDENTIALS` "E-posta ya da parola hatalı." |
+| Kayıtlı olmayan e-posta | Aynı istek, `yok@parakopru.test` ile | Yanlış parolayla **birebir aynı** yanıt (hangi bilginin yanlış olduğu belli olmaz) |
+| Token olmadan korunan uç | `curl -i http://localhost:8080/api/v1/me` | `401 UNAUTHORIZED` |
+| Token ile | `curl -H "Authorization: Bearer <access_token>" http://localhost:8080/api/v1/me` | `200`; rol ve izin listesi |
+| Oturum yenileme ve çıkış | [requests.http](requests.http) içindeki "Oturumu yenile", "Çıkış", "Çıkıştan sonra yenileme" | `200`, `204`, `401 SESSION_EXPIRED` |
+| Rol izinleri | `make test` içindeki `TestPermissionMatrixMatchesPlan` | Yetki matrisi (PLAN.md §5.10) koddaki tabloyla birebir aynı; denetçinin yazma izni yok |
+| Çalınan refresh token | `make test` içindeki `TestRefreshRotatesAndDetectsReuse` | İptal edilmiş token tekrar gelince 401 ve kullanıcının bütün oturumları kapanır |
+
+Rolün izni olmayan bir uca erişim (`403 FORBIDDEN`) ilk rol kısıtlı uçla (denetim kaydı, A7) birlikte bu tabloya eklenecek.
 
 ## Sistemi başlatma
 

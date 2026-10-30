@@ -25,7 +25,18 @@ type API struct {
 	DBMaxConns  int32  `env:"DB_MAX_CONNS" envDefault:"20"`
 	// Sahip rolle bağlantı adresi; yalnız açılıştaki migrasyon için kullanılır.
 	MigrationDatabaseURL string `env:"MIGRATION_DATABASE_URL,required,notEmpty"`
+
+	// JWT imza anahtarı; en az 32 karakter.
+	JWTSecret       string        `env:"JWT_SECRET,required,notEmpty"`
+	AccessTokenTTL  time.Duration `env:"ACCESS_TOKEN_TTL"  envDefault:"15m"`
+	RefreshTokenTTL time.Duration `env:"REFRESH_TOKEN_TTL" envDefault:"168h"`
+	// Refresh çerezi yalnız HTTPS'te gönderilsin mi? Yerel demo http://localhost olduğu için varsayılan kapalı.
+	CookieSecure bool `env:"COOKIE_SECURE" envDefault:"false"`
+	// Açılışta oluşturulan altı demo hesabın parolası.
+	DemoPassword string `env:"DEMO_PASSWORD,required,notEmpty"`
 }
+
+const minJWTSecretLen = 32
 
 // Validate etiketlerle ifade edilemeyen kuralları kontrol eder.
 func (c API) Validate() error {
@@ -36,6 +47,10 @@ func (c API) Validate() error {
 		return errors.New("SHUTDOWN_TIMEOUT must be positive")
 	case c.DBMaxConns < 1:
 		return errors.New("DB_MAX_CONNS must be at least 1")
+	case len(c.JWTSecret) < minJWTSecretLen:
+		return fmt.Errorf("JWT_SECRET must be at least %d characters", minJWTSecretLen)
+	case c.AccessTokenTTL <= 0 || c.RefreshTokenTTL <= c.AccessTokenTTL:
+		return errors.New("token TTLs must be positive and REFRESH_TOKEN_TTL longer than ACCESS_TOKEN_TTL")
 	}
 	return nil
 }

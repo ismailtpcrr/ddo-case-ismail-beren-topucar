@@ -15,6 +15,8 @@ import (
 var required = map[string]string{
 	"DATABASE_URL":           "postgres://app:pw@db:5432/parakopru",
 	"MIGRATION_DATABASE_URL": "postgres://owner:pw@db:5432/parakopru",
+	"JWT_SECRET":             "test-secret-0123456789-0123456789-abcdef",
+	"DEMO_PASSWORD":          "Demo.Parola.1",
 }
 
 func with(extra map[string]string) map[string]string {
@@ -32,6 +34,9 @@ func TestAPIDefaults(t *testing.T) {
 	require.Equal(t, 10*time.Second, cfg.RequestTimeout)
 	require.Equal(t, 15*time.Second, cfg.ShutdownTimeout)
 	require.Equal(t, int32(20), cfg.DBMaxConns)
+	require.Equal(t, 15*time.Minute, cfg.AccessTokenTTL)
+	require.Equal(t, 7*24*time.Hour, cfg.RefreshTokenTTL)
+	require.False(t, cfg.CookieSecure)
 }
 
 func TestAPIOverrides(t *testing.T) {
@@ -49,8 +54,8 @@ func TestAPIOverrides(t *testing.T) {
 	require.Equal(t, int32(50), cfg.DBMaxConns)
 }
 
-func TestAPIRequiresDatabaseURLs(t *testing.T) {
-	for _, key := range []string{"DATABASE_URL", "MIGRATION_DATABASE_URL"} {
+func TestAPIRequiresSettings(t *testing.T) {
+	for _, key := range []string{"DATABASE_URL", "MIGRATION_DATABASE_URL", "JWT_SECRET", "DEMO_PASSWORD"} {
 		missing := with(nil)
 		delete(missing, key)
 		_, err := config.LoadFrom[config.API](missing)
@@ -68,6 +73,8 @@ func TestAPIRejectsInvalidValues(t *testing.T) {
 		"sıfır zaman aşımı":       {"REQUEST_TIMEOUT": "0s"},
 		"negatif kapanış süresi":  {"SHUTDOWN_TIMEOUT": "-1s"},
 		"sıfır bağlantı":          {"DB_MAX_CONNS": "0"},
+		"kısa JWT anahtarı":       {"JWT_SECRET": "kisa"},
+		"refresh access'ten kısa": {"ACCESS_TOKEN_TTL": "1h", "REFRESH_TOKEN_TTL": "30m"},
 	}
 	for name, vars := range cases {
 		t.Run(name, func(t *testing.T) {
