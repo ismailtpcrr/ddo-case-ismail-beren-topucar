@@ -4,9 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -234,4 +239,26 @@ func TestStartRules(t *testing.T) {
 	var queued int
 	require.NoError(t, f.env.App.QueryRow(t.Context(), `SELECT count(*) FROM jobs WHERE kind = 'eod.run' AND payload->>'business_date' = '2027-09-10'`).Scan(&queued))
 	require.Equal(t, 1, queued, "outbox: iş kuyruğa girdi")
+}
+
+func TestHandlers(t *testing.T) {
+	f := newFixture(t)
+	h := interest.NewHandler(f.service(interest.Config{}))
+	r := chi.NewRouter()
+	r.Post("/eod/runs", h.Start)
+	r.Get("/eod/runs/{date}", h.Get)
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequestWithContext(auth.WithPrincipal(t.Context(), f.ops), method, path, strings.NewReader(body)))
+		return rec
+	}
+	require.Equal(t, http.StatusBadRequest, call(http.MethodPost, "/eod/runs", `{"business_date":"dün"}`).Code)
+	require.Equal(t, http.StatusUnprocessableEntity, call(http.MethodPost, "/eod/runs", `{"business_date":"2099-01-01"}`).Code)
+	require.Equal(t, http.StatusAccepted, call(http.MethodPost, "/eod/runs", `{"business_date":"2027-10-01"}`).Code)
+	require.Equal(t, http.StatusOK, call(http.MethodPost, "/eod/runs", `{"business_date":"2027-10-01"}`).Code, "aynı gün tekrar: mevcut çalıştırma")
+	rec := call(http.MethodGet, "/eod/runs/2027-10-01", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"status":"RUNNING"`)
+	require.Equal(t, http.StatusNotFound, call(http.MethodGet, "/eod/runs/2027-10-02", "").Code)
+	require.Equal(t, http.StatusNotFound, call(http.MethodGet, "/eod/runs/bozuk", "").Code)
 }

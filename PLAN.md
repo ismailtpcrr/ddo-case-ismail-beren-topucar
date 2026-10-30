@@ -588,9 +588,9 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [ ] L6 `test`: soğuk başlangıç ölçümü — Docker önbelleği boşaltılıp (`docker builder prune -af`) `docker compose up --build --wait` süresi ölçülür; hedef ≤ 5 dk, sonuç README'ye
 
 ### M — Doküman
-- [ ] M1 `docs`: README (ad, kurulum, mimari, kararlar, frontend gerekçesi, demo hesaplar, DR, `EXPLAIN (ANALYZE)`, Doğrulama Soruları)
-- [ ] M2 `docs`: DECISIONS.md, RUNBOOK.md (yedek/geri yükleme, expand → migrate → contract örneği)
-- [ ] M3 `docs`: TESTING.md (demo hesaplar, F/T tablosu, kanıt komutları, arayüz senaryoları), `requests.http`, `make reset-demo` kontrolü
+- [x] M1 `docs`: README (ad, kurulum, mimari, kararlar, frontend gerekçesi, demo hesaplar, DR, `EXPLAIN (ANALYZE)`, Doğrulama Soruları)
+- [x] M2 `docs`: DECISIONS.md, RUNBOOK.md (yedek/geri yükleme, expand → migrate → contract örneği)
+- [x] M3 `docs`: TESTING.md (demo hesaplar, F/T tablosu, kanıt komutları, arayüz senaryoları), `requests.http`, `make reset-demo` kontrolü
 
 ### N — Bonus (şartnamede "zorunlu değil"; yalnız zorunlu her şey bittiyse)
 - [ ] N1 müşteri ekstresi PDF'i

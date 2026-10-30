@@ -185,7 +185,8 @@ açılış − giden + gelen; toplam değişmedi; `/admin/invariants` ok. Ek ola
 | OpenTelemetry trace (api → worker → simulator) | ❌ yapılmadı | zaman yetmedi (L2'nin trace kısmı); Jaeger servisi de yok |
 | k6 yük testi ve SLO tablosu | ❌ yapılmadı | L3 |
 | Kaos senaryoları (≥ 2 betik) | ❌ yapılmadı | L4; PITR betiği felaket kurtarma içindir, kaos senaryosu değildir |
-| Kapsam ≥ %75 ve soğuk başlangıç ölçümü | ◐ | `transfer` ve `sim` paketleri %71 civarındaydı, `customer` paketinin kendi testi yok; soğuk başlangıç (≤ 5 dk) ölçülmedi |
+| Kapsam ≥ %75 (domain paketleri) | ✅ | ölçüldü (`go test -cover`): money %92, fx %88, customer %87, account %82, interest %82, transfer %79, card %78, ledger %77. Simülatör paketi (`sim`, veri üretici) %72: domain değil, bu eşiğin altında |
+| Soğuk başlangıç ≤ 5 dk ölçümü | ❌ yapılmadı | `docker builder prune` ile boş önbellekten kurulum süresi ölçülmedi |
 | Bonus (PDF ekstre, canlı hacim, revaluation) | ❌ | N1–N3 zorunlu değil, yapılmadı |
 
 Test sayısı 190'ın üzerinde (şartname ≥ 60); property testleri: para, faiz, defter, kur, transfer dizileri; fuzz: `FuzzParseAmount`, parola özeti ayrıştırma.

@@ -4,6 +4,7 @@ package transfer_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -214,3 +215,10 @@ func (a approvalFixture) requireInvariants(t *testing.T) {
 }
 
 func pageReq() page.Request { return page.Request{Limit: 20} }
+
+func (a approvalFixture) mustGetTransfer(t *testing.T, body []byte) transfer.Transfer {
+	t.Helper()
+	var tr transfer.Transfer
+	require.NoError(t, json.Unmarshal(body, &tr))
+	return tr
+}
