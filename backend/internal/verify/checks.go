@@ -35,7 +35,7 @@ func Checks() []Check {
 		{ID: "F-1", Title: "Müşteri ve hesap yönetimi", Run: checkF1, Timeout: 3 * time.Minute},
 		{ID: "F-2", Title: "Çift taraflı defter ve bakiye sorguları", Run: checkF2},
 		{ID: "F-3", Title: "Havale/EFT/FAST transferleri", Run: checkF3, Timeout: 3 * time.Minute},
-		{ID: "F-4", Title: "Kart provizyon, çekim, iade", PlannedIn: "E2"},
+		{ID: "F-4", Title: "Kart provizyon, çekim, iade", Run: checkF4, Timeout: 3 * time.Minute},
 		{ID: "F-5", Title: "Kur yönetimi ve çok para birimi", PlannedIn: "G1"},
 		{ID: "F-6", Title: "Faiz tahakkuku ve vergi kesintisi", PlannedIn: "H2"},
 		{ID: "F-7", Title: "Risk kuralları ve inceleme kuyruğu", PlannedIn: "J2"},
@@ -43,7 +43,7 @@ func Checks() []Check {
 
 		{ID: "T-1", Title: "Çift taraflı defter ve para korunumu", Run: checkT1, Timeout: 10 * time.Minute},
 		{ID: "T-2", Title: "İdempotent transfer ve saga", Run: checkT2, Timeout: 8 * time.Minute},
-		{ID: "T-3", Title: "Provizyon ve kullanılabilir bakiye", PlannedIn: "E2"},
+		{ID: "T-3", Title: "Provizyon ve kullanılabilir bakiye", Run: checkT3, Timeout: 5 * time.Minute},
 		{ID: "T-4", Title: "Faiz tahakkuku", PlannedIn: "H2"},
 		{ID: "T-5", Title: "Mutabakat motoru", PlannedIn: "I3"},
 		{ID: "T-6", Title: "Gerçek zamanlı risk kuralları", PlannedIn: "J2"},

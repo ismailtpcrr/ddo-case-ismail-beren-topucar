@@ -32,7 +32,9 @@ bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır.
 | `T-1` | Simülatör müşterilerinden 40 hesap arasında 10.000 eşzamanlı transfer (48 işçi, HTTP) | Her transfer 201 ya da 422 `INSUFFICIENT_FUNDS`; her hesapta bakiye = başlangıç − giden + gelen; 40 hesabın toplamı değişmez; `/admin/invariants` önce ve sonra ok. Tipik süre ≈ 4-5 sn |
 | `F-3` | EFT + FAST dış transfer (gerçek banka sahtesi); bozuk IBAN; farklı para birimi; yetersiz bakiye; gelen dış transfer (çift bildirim); operasyonun banka bildirimi göndermeyi denemesi | Transferler `COMPLETED` ya da `REVERSED` olur, gönderen bakiyesi tamamlananlar kadar düşer; `400 INVALID_IBAN`, `422 CURRENCY_MISMATCH`, `422 INSUFFICIENT_FUNDS`; gelen transfer iki bildirimde bir kez yazılır; bildirim yalnız sistem rolünde `200`, operasyonda `403` |
 | `T-2` | Aynı Idempotency-Key ile 20 eşzamanlı istek; farklı gövde; anahtarsız; 100 eşzamanlı dış transfer (%20 hata, %10 çift cevap); çift ve çelişkili banka bildirimi | Tek transfer, bakiye bir kez düşer, diğerleri `Idempotent-Replayed`; `422 IDEMPOTENCY_KEY_REUSED`, `400 IDEMPOTENCY_KEY_REQUIRED`; 100 transferin hepsi `COMPLETED` ya da `REVERSED` (tipik 88-92 tamamlanır, 8-12 telafi edilir); `EXTERNAL_CLEARING` değişmez, `NOSTRO` tamamlananlar kadar azalır; çelişkili bildirim transferi ve parayı değiştirmez, tutar uyuşmazlığı `422`. Tipik süre 14-17 sn |
-| `F-4` … `F-8`, `T-3` … `T-7` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
+| `F-4` | Demo kartıyla provizyon → kısmi çekim → aşırı çekim → final çekim → iade; süre aşımı (3 sn ömürlü provizyon); yetki ve yetersiz bakiye | Her adımda bakiye/bloke/kullanılabilir tam beklenen değerde; final çekimde kalan blok serbest (`CAPTURED`); `422 CAPTURE_EXCEEDS_HOLD`, `409 HOLD_NOT_ACTIVE`, `422 REFUND_EXCEEDS_CAPTURE`; süresi dolan provizyonu worker serbest bırakır (`EXPIRED`); müşteri provizyon açamaz `403`; yetersiz bakiye `422`. Tipik süre 8 sn |
+| `T-3` | Simülatör müşterisinin kartında HTTP üzerinden yarışlar: 60 eşzamanlı provizyon; her provizyonda 3 yarışan çekim; her çekimde 3 yarışan iade | Provizyonlardan tam `⌊kullanılabilir / tutar⌋` kadarı geçer (20); her provizyonda yalnız 1 çekim, her çekimde yalnız 1 iade geçer; bakiye = açılış − çekim + iade, `held` = Σ aktif kalan, kullanılabilir ≥ 0; `/admin/invariants` ok |
+| `F-5` … `F-8`, `T-4` … `T-7` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
 
 Yerelde (compose dışında) çalıştırmak için:
 
@@ -240,6 +242,16 @@ Kart ağı çağrıları yalnız `sistem@parakopru.test` hesabıyla yapılır (R
 | Değişmezler | `GET /api/v1/admin/invariants` | `hold_mismatches: 0` (held_minor = Σ aktif provizyon) |
 | Yetki | Müşteri token'ıyla `POST /cards/{id}/authorizations`; başka müşterinin hesabı `/holds` | `403` |
 | Go testleri | `cd backend && go test -race -v ./internal/card/` | Provizyon, kısmi/final çekim, iade, süre aşımı, idempotency, nesne düzeyi yetki |
+
+### T-3 kanıt komutları
+
+| Ne | Komut |
+|---|---|
+| API üzerinden uçtan uca (eşzamanlı provizyon/çekim/iade) | `make verify` → `F-4`, `T-3` satırları |
+| 100 eşzamanlı provizyon, bakiye yalnız 20'sine yeter | `cd backend && go test -race -run TestConcurrentAuthorizationsNeverExceedAvailable -v ./internal/card/` → tam 20 başarılı, 80 `INSUFFICIENT_FUNDS` |
+| Karışık yarış (provizyon + kısmi/final çekim + iade + süre aşımı, 16 işçi) | `go test -race -run TestMixedRaceKeepsAvailableBalanceCorrect -v ./internal/card/` → yarış sırasında izleyici kullanılabilir bakiyenin eksiye düşmediğini doğrular; `pg_stat_database.deadlocks` artmaz; bakiye = açılış − çekilen + iade edilen; `held` = Σ aktif kalan. Örnek çıktı: `çekilen 252824, iade 82860, bakiye 30036, bloke 21997, kullanılabilir 8039; deadlock 0` |
+| Aynı provizyondan / çekimden eşzamanlı çekim ve iade | `go test -race -run 'TestConcurrentCapturesCannotExceedHold|TestConcurrentRefundsCannotExceedCapture' -v ./internal/card/` |
+| Süre aşımı serbest bırakır | `go test -race -run TestExpiredHoldIsReleased -v ./internal/card/` |
 
 ## Dış banka transferi (saga)
 

@@ -552,7 +552,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 
 ### E — Kart provizyonu (T-3, F-4)
 - [x] E1 `feat(card)`: kartlar, provizyon, kısmi/final çekim, iade, süre aşımı işi
-- [ ] E2 `test(card)`: eşzamanlı yarış testleri + verify'a F-4, T-3
+- [x] E2 `test(card)`: eşzamanlı yarış testleri + verify'a F-4, T-3
 
 ### F — Zaman yolculuğu, dört göz, felaket kurtarma (T-7)
 - [ ] F1 `feat(ledger)`: `effective_at` / `recorded_at`, `as_of` + `known_at` bakiye ve defter sorguları
