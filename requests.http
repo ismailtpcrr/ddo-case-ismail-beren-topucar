@@ -483,3 +483,20 @@ Authorization: Bearer {{loginMusteri.response.body.access_token}}
 Content-Type: application/json
 
 {"business_date": "2026-10-30"}
+
+# ---------------------------------------------------------------------------
+# Eksik kalan okuma uçları
+# ---------------------------------------------------------------------------
+
+### Müşteri ayrıntısı (operasyon) — önce "Müşteri aç" isteğini çalıştırın
+GET {{baseUrl}}/api/v1/customers/{{newCustomer.response.body.id}}
+Authorization: Bearer {{loginOps.response.body.access_token}}
+
+### OpenAPI belgesi — girişsiz
+GET {{baseUrl}}/openapi.yaml
+
+### Swagger UI (tarayıcıda açın) — girişsiz
+GET {{baseUrl}}/docs
+
+### Prometheus metrikleri — girişsiz
+GET {{baseUrl}}/metrics
