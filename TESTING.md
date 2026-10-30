@@ -184,6 +184,18 @@ Durum: GitHub'da **Actions** sekmesi ya da `gh run list`.
 | Ters kayıt yetkisi | Müşteri, risk, uyum ya da denetçi token'ıyla ters kayıt | `403 FORBIDDEN` (yalnız operasyon) |
 | Defterin tamamı dengede | `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT currency, sum(amount_minor) FROM postings GROUP BY 1"'` | Her para biriminde `0` |
 
+## Dört göz onayı (T-7)
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Eşik "üzeri" | `go test -run TestApprovalThresholdIsStrictlyAbove -v ./internal/transfer/` ya da müşteriyle 10.000,00 ve 10.000,01 TL gönder | 10.000,00 TL hemen `COMPLETED`; 10.000,01 TL `202 PENDING_APPROVAL`, para hareket etmez, defter kaydı ve gönderim işi yok |
+| Onay | [requests.http](requests.http) "Dört göz onayı" (uyum token'ı) | `200`, transfer yürütülür (`COMPLETED`; dış transferde `RESERVED`); olaylar `CREATED → PENDING_APPROVAL → COMPLETED`; denetim kaydında `transfer.approve` |
+| İsteyen onaylayamaz | Müşteri token'ıyla `/approve` (`403`, izin yok); isteyen operasyon uzmanıysa kendi isteğini onaylamayı dener: `go test -run TestRequesterWithApproveRoleCannotApproveOwnTransfer -v ./internal/transfer/` | `403 FOUR_EYES_VIOLATION`; ayrıca doğrudan SQL ile `decided_by = requested_by` denemesi `approvals_four_eyes` kısıtına takılır |
+| Çift onay | Aynı transferi ikinci kez onayla; `go test -run TestConcurrentApprovalsExecuteOnce ./internal/transfer/` | `409 INVALID_STATE_TRANSITION`; eşzamanlı 6 onaydan tek biri yürütür, para bir kez hareket eder |
+| Reddet | `/reject` gerekçeyle (uyum token'ı) | `REJECTED` (`APPROVAL_REJECTED`), para hareket etmez; reddedilmiş transfer onaylanamaz `409` |
+| Yetersiz bakiye yürütmede | `go test -run TestApprovalRejectAndInsufficientFundsAtExecution ./internal/transfer/` | Onay beklerken bakiye bloke edilmez; iki bekleyen transferin toplamı bakiyeyi aşarsa ikincisi onayda `REJECTED (INSUFFICIENT_FUNDS)` |
+| Dış transfer onaydan sonra | `go test -run TestApprovedExternalTransferFollowsSaga ./internal/transfer/` | Onay → `RESERVED` → worker gönderir → `COMPLETED` |
+
 ## Zaman yolculuğu (T-7: `as_of` ve `known_at`)
 
 `as_of` **geçerlilik (valör) zamanı**, `known_at` **kayıt zamanı**dır (`recorded_at` her zaman veritabanı saatidir; istemci belirleyemez).

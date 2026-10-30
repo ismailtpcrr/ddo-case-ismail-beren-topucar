@@ -556,7 +556,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 
 ### F — Zaman yolculuğu, dört göz, felaket kurtarma (T-7)
 - [x] F1 `feat(ledger)`: `effective_at` / `recorded_at`, `as_of` + `known_at` bakiye ve defter sorguları
-- [ ] F2 `feat(transfer)`: 10.000 TL üzeri transferlerde dört göz onayı
+- [x] F2 `feat(transfer)`: 10.000 TL üzeri transferlerde dört göz onayı
 - [ ] F3 `feat(dr)`: WAL arşivi, `pg_dump`, PITR betiği (`make pitr-demo`; `make verify` de çalıştırır) + verify'a T-7
 
 ### G — Kur (F-5)

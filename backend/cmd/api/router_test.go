@@ -78,6 +78,10 @@ func TestCustomerAndAccountWritePermissions(t *testing.T) {
 		{auth.RoleAuditor, http.MethodPost, "/api/v1/captures/" + uuid.NewString() + "/refunds"},
 		{auth.RoleSystem, http.MethodGet, "/api/v1/cards"},
 		{auth.RoleSystem, http.MethodGet, "/api/v1/accounts/" + uuid.NewString() + "/holds"},
+		// Dört göz onayı yalnız operasyon ve uyum (transfers:approve).
+		{auth.RoleCustomer, http.MethodPost, "/api/v1/transfers/" + uuid.NewString() + "/approve"},
+		{auth.RoleAuditor, http.MethodPost, "/api/v1/transfers/" + uuid.NewString() + "/approve"},
+		{auth.RoleRiskAnalyst, http.MethodPost, "/api/v1/transfers/" + uuid.NewString() + "/reject"},
 		// Banka bildirimleri yalnız "sistem" rolünün.
 		{auth.RoleOperations, http.MethodPost, "/api/v1/webhooks/bank/transfer-status"},
 		{auth.RoleCustomer, http.MethodPost, "/api/v1/webhooks/bank/incoming"},

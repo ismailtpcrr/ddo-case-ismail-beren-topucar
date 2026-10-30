@@ -491,3 +491,25 @@ Docker imajı zaten `golang:1.27-alpine` (güncel yama) ile derlenir. Yerelde Go
   değişmez); `recorded_at`'i uygulama saatiyle yazmak (K-13'te elendi); müşteriye de `as_of` açmak (PLAN matrisinde yok).
 - **Sonuçlar / ödünleşimler:** Çok eski bir `as_of` hesabın tüm satırlarını toplar; çok yoğun hesaplarda (iç hesaplar)
   maliyet satır sayısıyla artar (dizin-yalnız tarama, milisaniyeler). Bu durumda dönemsel kapanış snapshot'ı eklenebilir (şimdilik gerek yok).
+
+## K-23 Dört göz onayı: eşik, bloke yok, DB kısıtı ve yürütmenin tek yolu
+
+*(PLAN.md §5.2, §5.9; PLAN §12 not listesindeki "bekleyen transferde para bloke edilmez"; F2 adımı.)*
+
+- **Bağlam:** proje.md Görev 7: "10.000 TL üzeri transferler dört göz onayı ister." PLAN §5.9: `approvals(requested_by, approved_by,
+  CHECK (approved_by <> requested_by))`; onaylayan operasyon ya da uyum rolünde.
+- **Karar:**
+  - **Eşik `> 10.000,00 TL`** (1.000.000 kuruştan fazla); tam 10.000,00 onay istemez ("üzeri").
+  - **Bekleyen transferde para bloke edilmez**, defter kaydı yazılmaz: yetersiz bakiye yürütme (onay) anında kontrol edilir
+    ve o zaman `REJECTED (INSUFFICIENT_FUNDS)` olur. Bu, README'de bilinen sınırlama olarak yazılır (PLAN notu).
+  - **Yürütmenin tek yolu `execute`:** doğrudan transfer ile onay sonrası aynı kod çalışır (defter kaydı, durum geçişi,
+    dış transferde outbox işi). Onay sırasında hesaplar yeniden çözülür ve iş kuralları (para birimi, hesap durumu) yeniden kontrol edilir.
+  - **Kural iki katlı:** uygulama (`FOUR_EYES_VIOLATION`, 403) ve `approvals_four_eyes` CHECK kısıtı. Reddetme `decided_by`'ı
+    kaydeder ama kısıt yalnız `APPROVED` durumuna uygulanır (isteyen kendi isteğinden vazgeçebilir; para zaten hareket etmedi).
+  - **Eşzamanlılık:** transfer satırı ve onay kaydı `FOR UPDATE`; eşzamanlı iki onaydan biri yürütür, diğeri 409. Onay ve ret
+    `Idempotency-Key` ister.
+  - **Döviz:** TL karşılığı için kur G1'de bağlanır; o zamana kadar muhafazakâr kural: döviz tutarı eşiği (1 birim ≥ 1 TL sayılarak) aşarsa onay istenir.
+- **Değerlendirilen alternatifler:** Bekleyen tutarı bloke etmek (haftalarca bekleyen onay bakiyeyi kilitler; kullanılabilir
+  bakiye muhasebesi karmaşıklaşır, kart provizyonuyla çakışır); onayı yalnız uygulamada kontrol etmek (doğrudan SQL ile aşılabilir).
+- **Sonuçlar / ödünleşimler:** İki büyük transfer aynı bakiyeye karşı bekleyebilir; ikincisi onayda reddedilir. Onay kuyruğu
+  ekranı K2'de (şimdilik `GET /transfers?state=PENDING_APPROVAL`).

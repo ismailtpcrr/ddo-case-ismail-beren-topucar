@@ -351,6 +351,9 @@ paths:
         gönderim worker'da arka planda yapılır ve sonuç `GET /transfers/{id}` ile izlenir
         (`RESERVED → SENT → COMPLETED`; belirsizse `UNKNOWN`, banka reddederse `FAILED → REVERSED`: ters kayıtla para müşteriye döner).
         Farklı para birimi `422 CURRENCY_MISMATCH` döner (çok para birimi ayrı adımda).
+        **Dört göz:** tutar 10.000,00 TL'nin **üzerindeyse** (tam 10.000,00 değil) transfer `PENDING_APPROVAL` olur (`202`); para
+        bloke edilmez ve defter kaydı yazılmaz. `transfers:approve` sahibi (operasyon, uyum) ve **isteyenden farklı** bir kişi
+        `/approve` ile yürütür (`403 FOUR_EYES_VIOLATION` isteyen onaylarsa). Yetersiz bakiye yürütme anında kontrol edilir.
         Transfer, defter kaydı, denetim kaydı ve (dış transferde) gönderim işi tek transaction'da yazılır. Aynı `Idempotency-Key` ile tekrar istek
         aynı sonucu döndürür (`Idempotent-Replayed: true`). Yetersiz bakiye `422 INSUFFICIENT_FUNDS` döner; bu da bir
         sonuçtur: `REJECTED` bir transfer kaydı yazılır (kimliği `X-Transfer-ID` başlığında) ve tekrar istek aynı reddi alır.
@@ -370,7 +373,7 @@ paths:
             Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
           content: { application/json: { schema: { $ref: "#/components/schemas/Transfer" } } }
         "202":
-          description: Dış transfer kabul edildi (`RESERVED`); bankaya gönderim arka planda yapılır
+          description: Dış transfer kabul edildi (`RESERVED`; bankaya gönderim arka planda yapılır) ya da 10.000 TL üzeri transfer onay bekliyor (`PENDING_APPROVAL`)
           headers:
             Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
           content: { application/json: { schema: { $ref: "#/components/schemas/Transfer" } } }
@@ -436,6 +439,58 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/transfers/{id}/approve:
+    post:
+      summary: Dört göz onayı (10.000 TL üzeri transfer)
+      description: |
+        İzin: `transfers:approve` (operasyon, uyum). Onaylayan, transferi isteyen kişiden farklı olmalıdır
+        (`403 FOUR_EYES_VIOLATION`; ayrıca `approvals_four_eyes` veritabanı kısıtı). Onay transferi yürütür: banka içi
+        tamamlanır, dış transfer `RESERVED` olup gönderilir; yürütme anında bakiye yetmezse `REJECTED` (`INSUFFICIENT_FUNDS`).
+        Eşzamanlı iki onaydan yalnız biri yürütür, diğeri `409`. Transfer onay beklemiyorsa `409 INVALID_STATE_TRANSITION`.
+      tags: [Transfer]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Onaylandı ve yürütüldü
+          headers: { Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Transfer" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Yetki yok ya da isteyen kişi onaylayamaz (`FOUR_EYES_VIOLATION`), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Transfer onay beklemiyor (`INVALID_STATE_TRANSITION`), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /api/v1/transfers/{id}/reject:
+    post:
+      summary: Onay bekleyen transferi reddet
+      description: "İzin: `transfers:approve`. Gerekçe zorunlu (3-400 karakter). Para hiç hareket etmez; transfer `REJECTED` (`APPROVAL_REJECTED`) olur."
+      tags: [Transfer]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 400 }
+      responses:
+        "200":
+          description: Reddedildi
+          headers: { Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Transfer" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Transfer onay beklemiyor, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
 
   /api/v1/admin/invariants:
     get:

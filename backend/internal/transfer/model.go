@@ -109,6 +109,8 @@ var (
 	ErrNotFound         = apperr.ErrNotFound.WithMessage("Transfer bulunamadı.")
 	ErrInvalidIBAN      = apperr.New(http.StatusBadRequest, "INVALID_IBAN", "Alıcı IBAN'ı geçersiz.")
 	ErrBeneficiary      = apperr.New(http.StatusUnprocessableEntity, "BENEFICIARY_NOT_FOUND", "Alıcı hesap bulunamadı.")
+	ErrFourEyes         = apperr.New(http.StatusForbidden, "FOUR_EYES_VIOLATION", "Transferi isteyen kişi onaylayamaz; farklı bir yetkili onaylamalı.")
+	ErrNotPending       = apperr.New(http.StatusConflict, "INVALID_STATE_TRANSITION", "Transfer onay beklemiyor.")
 	ErrBankMismatch     = apperr.New(http.StatusUnprocessableEntity, "BANK_RESULT_MISMATCH", "Banka bildirimi transfer kaydıyla uyuşmuyor.")
 	ErrNotExternal      = apperr.New(http.StatusUnprocessableEntity, "NOT_EXTERNAL_TRANSFER", "Bu işlem yalnız dış banka transferleri içindir.")
 	ErrCurrencyMismatch = apperr.New(http.StatusUnprocessableEntity, "CURRENCY_MISMATCH", "Transfer para birimi, gönderen hesabın para birimiyle aynı olmalı.")
@@ -121,4 +123,24 @@ var (
 
 func invalidTransition(from, to State) error {
 	return fmt.Errorf("%w: %s → %s", ErrInvalidTransition, from, to)
+}
+
+// ApprovalThresholdMinor dört göz onayı eşiğidir: 10.000,00 TL. Tutar eşiğin **üzerindeyse** (> ) onay gerekir; tam 10.000,00 TL gerekmez.
+const ApprovalThresholdMinor int64 = 10_000_00
+
+// RejectInput onay bekleyen transferi reddetme isteğidir.
+type RejectInput struct {
+	Reason string `json:"reason" validate:"required,min=3,max=400"`
+}
+
+// Approval bir dört göz onay kaydıdır.
+type Approval struct {
+	ID          uuid.UUID  `json:"id"`
+	TransferID  uuid.UUID  `json:"transfer_id"`
+	RequestedBy uuid.UUID  `json:"requested_by"`
+	Status      string     `json:"status"`
+	DecidedBy   *uuid.UUID `json:"decided_by"`
+	Reason      *string    `json:"reason"`
+	CreatedAt   time.Time  `json:"created_at"`
+	DecidedAt   *time.Time `json:"decided_at"`
 }

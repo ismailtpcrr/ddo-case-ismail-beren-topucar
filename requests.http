@@ -390,3 +390,45 @@ Content-Type: application/json
 Idempotency-Key: {{$guid}}
 
 {"reason": "Geriye tarihli düzeltme", "effective_at": "2026-10-30T00:00:00Z"}
+
+# ---------------------------------------------------------------------------
+# Dört göz onayı (T-7): 10.000 TL üzeri transfer ikinci bir yetkilinin onayını ister
+# ---------------------------------------------------------------------------
+
+### Uyum uzmanı olarak giriş (onaylayan)
+# @name loginUyum
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "uyum@parakopru.test", "password": "{{password}}"}
+
+### 15.000,00 TL transfer (müşteri) — 202 PENDING_APPROVAL; para hareket etmez (eşik: 10.000,00 TL ÜZERİ)
+# @name bigTransfer
+POST {{baseUrl}}/api/v1/transfers
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"from_account_id": "{{myAccounts.response.body.$.items[0].id}}", "to_iban": "{{payee.response.body.iban}}", "amount_minor": 1500000, "currency": "TRY", "description": "Büyük havale"}
+
+### Onay bekleyenler (operasyon)
+GET {{baseUrl}}/api/v1/transfers?state=PENDING_APPROVAL
+Authorization: Bearer {{loginOps.response.body.access_token}}
+
+### İsteyen kişi onaylayamaz (müşterinin onay yetkisi yok: 403 FORBIDDEN)
+POST {{baseUrl}}/api/v1/transfers/{{bigTransfer.response.body.id}}/approve
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Idempotency-Key: {{$guid}}
+
+### Onay (uyum uzmanı) — 200; transfer yürütülür (COMPLETED); ikinci onay 409
+POST {{baseUrl}}/api/v1/transfers/{{bigTransfer.response.body.id}}/approve
+Authorization: Bearer {{loginUyum.response.body.access_token}}
+Idempotency-Key: {{$guid}}
+
+### Reddetme (gerekçeli) — para hiç hareket etmez
+POST {{baseUrl}}/api/v1/transfers/{{bigTransfer.response.body.id}}/reject
+Authorization: Bearer {{loginUyum.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"reason": "Şüpheli işlem"}

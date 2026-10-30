@@ -130,3 +130,37 @@ func setEntry(ctx context.Context, q db.DBTX, id uuid.UUID, column string, entry
 	}
 	return nil
 }
+
+func insertApproval(ctx context.Context, q db.DBTX, id, transferID, requestedBy uuid.UUID) error {
+	_, err := q.Exec(ctx, `INSERT INTO approvals (id, transfer_id, requested_by) VALUES ($1, $2, $3)`, id, transferID, requestedBy)
+	if err != nil {
+		return fmt.Errorf("transfer: insert approval: %w", err)
+	}
+	return nil
+}
+
+func decideApproval(ctx context.Context, q db.DBTX, transferID, decidedBy uuid.UUID, status, reason string) error {
+	_, err := q.Exec(ctx, `
+		UPDATE approvals SET status = $3, decided_by = $2, reason = NULLIF($4, ''), decided_at = now()
+		 WHERE transfer_id = $1 AND status = 'PENDING'`, transferID, decidedBy, status, reason)
+	if db.IsCheckViolation(err, "approvals_four_eyes") {
+		return ErrFourEyes
+	}
+	if err != nil {
+		return fmt.Errorf("transfer: decide approval: %w", err)
+	}
+	return nil
+}
+
+func getApproval(ctx context.Context, q db.DBTX, transferID uuid.UUID) (*Approval, error) {
+	var a Approval
+	err := q.QueryRow(ctx, `SELECT id, transfer_id, requested_by, status, decided_by, reason, created_at, decided_at FROM approvals WHERE transfer_id = $1`, transferID).
+		Scan(&a.ID, &a.TransferID, &a.RequestedBy, &a.Status, &a.DecidedBy, &a.Reason, &a.CreatedAt, &a.DecidedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("transfer: get approval: %w", err)
+	}
+	return &a, nil
+}

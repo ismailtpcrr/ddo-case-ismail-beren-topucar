@@ -42,6 +42,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
+	if t.State == PendingApproval { // 10.000 TL üzeri: dört göz onayı bekliyor, para hareket etmedi
+		httpx.WriteJSON(w, http.StatusAccepted, t)
+		return
+	}
 	if t.State == Reserved { // dış transfer: kabul edildi, bankaya gönderim arka planda (worker) yapılır
 		httpx.WriteJSON(w, http.StatusAccepted, t)
 		return
@@ -123,4 +127,55 @@ func (h *Handler) Incoming(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true, "duplicate": dup})
+}
+
+func decisionPrep(w http.ResponseWriter, r *http.Request) (uuid.UUID, string, bool) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.WriteError(w, r, apperr.ErrValidation.WithMessage("id geçerli bir UUID olmalı."))
+		return uuid.Nil, "", false
+	}
+	key, err := idempotency.FromRequest(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return uuid.Nil, "", false
+	}
+	return id, key, true
+}
+
+// Approve: POST /api/v1/transfers/{id}/approve [Idempotency-Key] (izin: transfers:approve; isteyen kişi onaylayamaz)
+func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
+	id, key, ok := decisionPrep(w, r)
+	if !ok {
+		return
+	}
+	p, _ := auth.PrincipalFrom(r.Context())
+	t, replayed, err := h.svc.Approve(r.Context(), p, key, id)
+	idempotency.MarkReplayed(w, replayed)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, t)
+}
+
+// Reject: POST /api/v1/transfers/{id}/reject [Idempotency-Key] (izin: transfers:approve)
+func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
+	id, key, ok := decisionPrep(w, r)
+	if !ok {
+		return
+	}
+	var in RejectInput
+	if err := httpx.DecodeJSON(w, r, &in); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	p, _ := auth.PrincipalFrom(r.Context())
+	t, replayed, err := h.svc.Reject(r.Context(), p, key, id, in)
+	idempotency.MarkReplayed(w, replayed)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, t)
 }

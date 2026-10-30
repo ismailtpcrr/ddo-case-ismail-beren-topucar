@@ -192,6 +192,10 @@ func checkF3(ctx context.Context, env *Env) (string, error) {
 		return "", fmt.Errorf("gönderen bakiyesi %d, beklenen %d (tamamlanan %d, iade %d)", after.BalanceMinor, want, completed, reversed)
 	}
 
+	_, empty, err := env.newCustomerWithAccount(ctx, ops.AccessToken, "TRY")
+	if err != nil {
+		return "", err
+	}
 	// Kurallar: bozuk IBAN 400, farklı para birimi 422, yetersiz bakiye 422.
 	for _, tc := range []struct {
 		what   string
@@ -201,7 +205,7 @@ func checkF3(ctx context.Context, env *Env) (string, error) {
 	}{
 		{"bozuk IBAN", map[string]any{"from_account_id": a.ID, "to_iban": "TR000000000000000000000000", "amount_minor": 100, "currency": "TRY"}, http.StatusBadRequest, "INVALID_IBAN"},
 		{"farklı para birimi", map[string]any{"from_account_id": a.ID, "to_iban": externalIBAN(900_000_001), "amount_minor": 100, "currency": "USD"}, http.StatusUnprocessableEntity, "CURRENCY_MISMATCH"},
-		{"yetersiz bakiye", map[string]any{"from_account_id": a.ID, "to_iban": externalIBAN(900_000_002), "amount_minor": 999_999_999_99, "currency": "TRY"}, http.StatusUnprocessableEntity, "INSUFFICIENT_FUNDS"},
+		{"yetersiz bakiye (bakiyesiz hesap, eşiğin altında)", map[string]any{"from_account_id": empty.ID, "to_iban": externalIBAN(900_000_002), "amount_minor": 100_00, "currency": "TRY"}, http.StatusUnprocessableEntity, "INSUFFICIENT_FUNDS"},
 	} {
 		resp, err := env.postKeyed(ctx, "/api/v1/transfers", ops.AccessToken, fmt.Sprintf("f3r-%d-%s", run, tc.code), tc.body)
 		if err != nil {

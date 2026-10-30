@@ -99,15 +99,43 @@ func (s *Service) create(ctx context.Context, tx db.DBTX, p auth.Principal, in C
 		return Transfer{}, err
 	}
 
-	amt := money.New(in.AmountMinor, in.Currency)
+	if s.needsApproval(in.AmountMinor, in.Currency) {
+		// Dört göz: para bloke edilmez; yetersiz bakiye yürütme anında (onaydan sonra) kontrol edilir.
+		if err := insertApproval(ctx, tx, s.ids.NewID(), t.ID, p.UserID); err != nil {
+			return Transfer{}, err
+		}
+		if err := s.move(ctx, tx, &t, PendingApproval, nil, nil, "10.000 TL üzeri: dört göz onayı bekliyor"); err != nil {
+			return Transfer{}, err
+		}
+		err := s.audit.Record(ctx, tx, audit.Entry{Action: "transfer.create", Entity: "transfer", EntityID: t.ID.String(), New: t})
+		return t, err
+	}
+	if err := s.execute(ctx, tx, &t, from, to); err != nil {
+		return Transfer{}, err
+	}
+	err = s.audit.Record(ctx, tx, audit.Entry{Action: "transfer.create", Entity: "transfer", EntityID: t.ID.String(), New: t})
+	return t, err
+}
+
+// needsApproval tutarın dört göz onayı gerektirip gerektirmediğini söyler: TL karşılığı 10.000,00'ın üzerinde.
+// Döviz için güncel kur kur adımında (G1) bağlanır; o zamana kadar muhafazakâr davranılır: 1 birim döviz ≥ 1 TL
+// sayılır, yani döviz tutarı eşiği aşarsa onay istenir (gerçek TL karşılığı hiçbir zaman daha az değildir).
+func (s *Service) needsApproval(minor int64, _ money.Currency) bool {
+	return minor > ApprovalThresholdMinor
+}
+
+// execute transferi yürütür: defter kaydı, durum geçişi ve (dış transferde) gönderim işi. Banka içi tamamlanır;
+// dış transfer RESERVED olur ve işi kuyruğa girer; yetersiz bakiye REJECTED olur (ret de bir sonuçtur).
+func (s *Service) execute(ctx context.Context, tx db.DBTX, t *Transfer, from account.Account, to *account.Account) error {
+	amt := money.New(t.AmountMinor, t.Currency)
 	var entry ledger.Entry
 	if to != nil { // banka içi: tek kayıtla hemen tamamlanır
 		entry = ledger.Entry{Kind: KindTransfer, Reference: t.ID.String(), Description: "Havale: " + from.Name + " → " + to.Name,
 			Lines: []ledger.Line{ledger.Debit(from.ID, amt), ledger.Credit(to.ID, amt)}}
 	} else { // dış banka: para önce takas hesabına ayrılır (RESERVED); banka onaylayınca takas kapanır
-		clearing, err := s.accounts.InternalAccountID(ctx, tx, account.ExternalClearing, in.Currency)
+		clearing, err := s.accounts.InternalAccountID(ctx, tx, account.ExternalClearing, t.Currency)
 		if err != nil {
-			return Transfer{}, err
+			return err
 		}
 		entry = ledger.Entry{Kind: KindTransfer, Reference: t.ID.String(), Description: "Dış transfer ayırma: " + from.Name,
 			Lines: []ledger.Line{ledger.Debit(from.ID, amt), ledger.Credit(clearing, amt)}}
@@ -117,26 +145,25 @@ func (s *Service) create(ctx context.Context, tx db.DBTX, p auth.Principal, in C
 	case errors.Is(err, ledger.ErrInsufficientFunds):
 		// Defter hiçbir şey yazmadan döndü; transaction sağlam. Ret de bir sonuçtur.
 		code := "INSUFFICIENT_FUNDS"
-		if err := s.move(ctx, tx, &t, Rejected, nil, &code, code); err != nil {
-			return Transfer{}, err
+		if err := s.move(ctx, tx, t, Rejected, nil, &code, code); err != nil {
+			return err
 		}
 	case err != nil:
-		return Transfer{}, err
+		return err
 	case to != nil:
-		if err := s.move(ctx, tx, &t, Completed, &entryID, nil, ""); err != nil {
-			return Transfer{}, err
+		if err := s.move(ctx, tx, t, Completed, &entryID, nil, ""); err != nil {
+			return err
 		}
 	default:
-		if err := s.move(ctx, tx, &t, Reserved, &entryID, nil, ""); err != nil {
-			return Transfer{}, err
+		if err := s.move(ctx, tx, t, Reserved, &entryID, nil, ""); err != nil {
+			return err
 		}
 		// Outbox: gönderim işi, ayırma kaydıyla aynı transaction'da kuyruğa girer (ya ikisi var ya hiçbiri).
 		if _, err := s.queue.Enqueue(ctx, tx, JobSend, SendPayload{TransferID: t.ID}); err != nil {
-			return Transfer{}, err
+			return err
 		}
 	}
-	err = s.audit.Record(ctx, tx, audit.Entry{Action: "transfer.create", Entity: "transfer", EntityID: t.ID.String(), New: t})
-	return t, err
+	return nil
 }
 
 // resolve gönderen ve (banka içiyse) alıcı hesabı çözer, isteğin iş kurallarını kontrol eder. Alıcı IBAN'ı bizim
@@ -244,4 +271,85 @@ func decode(raw []byte, v any) error {
 		return fmt.Errorf("transfer: bad job payload: %w", err)
 	}
 	return nil
+}
+
+// Approve onay bekleyen transferi onaylar ve yürütür (dört göz). Onaylayan isteyen kişiden farklı olmalıdır
+// (uygulamada ve veritabanı kısıtıyla); transfer satırı kilitli olduğu için eşzamanlı iki karar tek sonuç verir.
+// Yürütme anında bakiye yetmezse transfer REJECTED olur. Sonuç Idempotency-Key ile korunur.
+func (s *Service) Approve(ctx context.Context, p auth.Principal, keyValue string, id uuid.UUID) (Transfer, bool, error) {
+	ctx = auth.WithPrincipal(ctx, p)
+	key, err := idempotency.NewKey(p.UserID, keyValue, "transfer.approve", id)
+	if err != nil {
+		return Transfer{}, false, err
+	}
+	return idempotency.Run(ctx, s.tx, key, func(ctx context.Context, tx db.DBTX) (Transfer, error) {
+		t, ap, err := s.lockPending(ctx, tx, id)
+		if err != nil {
+			return Transfer{}, err
+		}
+		if ap.RequestedBy == p.UserID {
+			return Transfer{}, ErrFourEyes
+		}
+		if err := decideApproval(ctx, tx, id, p.UserID, "APPROVED", ""); err != nil {
+			return Transfer{}, err
+		}
+		from, to, err := s.resolve(ctx, tx, p, CreateInput{FromAccountID: t.FromAccountID, ToIBAN: t.ToIBAN, AmountMinor: t.AmountMinor, Currency: t.Currency})
+		if err != nil {
+			return Transfer{}, err
+		}
+		before := t
+		if err := s.execute(ctx, tx, &t, from, to); err != nil {
+			return Transfer{}, err
+		}
+		return t, s.audit.Record(ctx, tx, audit.Entry{Action: "transfer.approve", Entity: "transfer", EntityID: t.ID.String(), Old: before, New: t})
+	})
+}
+
+// Reject onay bekleyen transferi gerekçeyle reddeder; para hiç hareket etmez.
+func (s *Service) Reject(ctx context.Context, p auth.Principal, keyValue string, id uuid.UUID, in RejectInput) (Transfer, bool, error) {
+	ctx = auth.WithPrincipal(ctx, p)
+	key, err := idempotency.NewKey(p.UserID, keyValue, "transfer.reject", struct {
+		ID    uuid.UUID   `json:"id"`
+		Input RejectInput `json:"input"`
+	}{id, in})
+	if err != nil {
+		return Transfer{}, false, err
+	}
+	return idempotency.Run(ctx, s.tx, key, func(ctx context.Context, tx db.DBTX) (Transfer, error) {
+		t, _, err := s.lockPending(ctx, tx, id)
+		if err != nil {
+			return Transfer{}, err
+		}
+		if err := decideApproval(ctx, tx, id, p.UserID, "REJECTED", in.Reason); err != nil {
+			return Transfer{}, err
+		}
+		before := t
+		code := "APPROVAL_REJECTED"
+		if err := s.move(ctx, tx, &t, Rejected, nil, &code, in.Reason); err != nil {
+			return Transfer{}, err
+		}
+		return t, s.audit.Record(ctx, tx, audit.Entry{Action: "transfer.reject", Entity: "transfer", EntityID: t.ID.String(), Old: before, New: t})
+	})
+}
+
+// lockPending transferi ve onay kaydını kilitleyip PENDING_APPROVAL olduğunu doğrular (değilse 409).
+func (s *Service) lockPending(ctx context.Context, tx db.DBTX, id uuid.UUID) (Transfer, *Approval, error) {
+	t, err := lock(ctx, tx, id)
+	if err != nil {
+		return Transfer{}, nil, err
+	}
+	ap, err := getApproval(ctx, tx, id)
+	if err != nil {
+		return Transfer{}, nil, err
+	}
+	if t.State != PendingApproval || ap == nil || ap.Status != "PENDING" {
+		return Transfer{}, nil, ErrNotPending
+	}
+	return t, ap, nil
+}
+
+// Pending onay bekleyen transferleri listeler (operasyon ve uyum onay kuyruğu).
+func (s *Service) Pending(ctx context.Context, req page.Request) (page.Page[Transfer], error) {
+	st := PendingApproval
+	return list(ctx, s.tx.DB(), nil, &st, req)
 }

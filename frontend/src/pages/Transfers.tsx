@@ -45,7 +45,9 @@ function TransferForm() {
       notifications.show(
         tr.state === 'COMPLETED'
           ? { color: 'green', title: 'Transfer tamamlandı', message: `${formatMoney(minor, source.currency)} gönderildi.` }
-          : { color: 'blue', title: 'Transfer alındı', message: 'Dış bankaya gönderiliyor; durumu geçmişten izleyebilirsiniz.' },
+          : tr.state === 'PENDING_APPROVAL'
+            ? { color: 'yellow', title: 'Onay bekliyor', message: '10.000 TL üzeri transferler ikinci bir yetkilinin onayını ister; onaylanana kadar para hareket etmez.' }
+            : { color: 'blue', title: 'Transfer alındı', message: 'Dış bankaya gönderiliyor; durumu geçmişten izleyebilirsiniz.' },
       )
       key.current = crypto.randomUUID()
       setAmount('')
@@ -117,7 +119,7 @@ export default function Transfers() {
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     // Sonuçlanmamış dış transfer varken liste birkaç saniyede bir yenilenir.
     refetchInterval: (query) =>
-      query.state.data?.pages.some((p) => p.items.some((t) => ['RESERVED', 'SENT', 'UNKNOWN'].includes(t.state))) ? 3000 : false,
+      query.state.data?.pages.some((p) => p.items.some((t) => ['RESERVED', 'SENT', 'UNKNOWN', 'PENDING_APPROVAL'].includes(t.state))) ? 3000 : false,
   })
   const rows = q.data?.pages.flatMap((p) => p.items) ?? []
 
