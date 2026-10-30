@@ -221,6 +221,20 @@ conservation_test.go:143: [rapid] OK, passed 100 tests (4.521866208s)
 | Toplu yazma doğru | `go test -run TestSeedWritesBalancedLedgerAndIsIdempotent -v ./internal/sim/` | Kayıtlar yazılır, değişmezler ok, OPENING_EQUITY eksi toplam, ikinci çalıştırma atlanır |
 | Tohumu değiştirme | `.env` içinde `SIM_SEED`/`SIM_CUSTOMERS` değiştirip `make reset-demo` | Farklı tohum farklı veri; boyut `SIM_CUSTOMERS` ile ayarlanır |
 
+## Dış banka transferi (saga)
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Dış transfer | [requests.http](requests.http) "Dış banka transferi" (müşteri token'ı; IBAN bankanın dışında) | `202`, `state=RESERVED`; para hemen müşteriden düşer (takas hesabında bekler); birkaç saniye içinde `GET /transfers/{id}` → `COMPLETED` (olaylar `CREATED → RESERVED → SENT → COMPLETED`) |
+| Toplu deneme (gerçek banka sahtesi) | 40 dış transfer gönder (`curl` döngüsü; `TESTING.md` altındaki komut ya da arayüz), ~30 sn bekle, `GET /transfers?limit=100` | Hepsi `COMPLETED` ya da `REVERSED`; hiçbiri `RESERVED/SENT` takılı kalmaz. Örnek çalıştırma: 40 transferin 37'si COMPLETED, 3'ü REVERSED; müşteri bakiyesi tam 37 × tutar düştü; `EXTERNAL_CLEARING` = 0; `/admin/invariants` ok; worker logunda `bank send uncertain` (4), API logunda `duplicate bank result ignored` (39) |
+| Belirsiz sonuç → sorgu → tamamla | `go test -run TestUncertainOutcomeIsQueriedThenCompleted -v ./internal/transfer/` | Banka zaman aşımı verince `UNKNOWN`; para ayrılmış kalır; sorgulama da başarısızsa `UNKNOWN` kalıp yeniden denenir; sorgu `COMPLETED` deyince tamamlanır, yeniden gönderim olmaz |
+| Belirsiz sonuç → telafi (ters kayıt) | `go test -run 'TestUncertainOutcomeNotFoundIsCompensated|TestExternalTransferRejectedIsReversed' -v ./internal/transfer/` | Banka reddederse ya da hiç işlememişse (`NOT_FOUND`): `FAILED → REVERSED`, ters kayıt yazılır, para müşteriye döner, takas 0, nostro değişmez |
+| Çift cevap | `go test -run TestWebhookDuplicatesAndMismatch -v ./internal/transfer/` | Aynı bildirim iki kez ve geç gelen çelişkili bildirim para hareketi yapmaz; tutar uyuşmazlığı `422 BANK_RESULT_MISMATCH`; bilinmeyen referans `404` |
+| Worker ve bildirim yarışı | `go test -run TestConcurrentSettlementHappensOnce -v ./internal/transfer/` | Aynı anda 6 worker çalıştırması + 6 bildirim: tek tahsilat (nostro bir kez azalır) |
+| Gönderim işi outbox'tan | `go test -run TestExternalTransferCompletes -v ./internal/transfer/` | Ayırma kaydıyla aynı transaction'da `transfer.send` işi kuyruğa girer; iş tekrar çalışsa banka bir kez çağrılır |
+| Gelen dış transfer | [requests.http](requests.http) "Bankadan gelen transfer" (sistem token'ı); `go test -run TestIncomingTransferIsIdempotentByBankReference ./internal/transfer/` | Alıcı alacaklanır, `NOSTRO` borçlanır; aynı banka referansı ikinci kez `duplicate:true`, tekrar yazılmaz |
+| Bildirim yetkisi | Operasyon/müşteri token'ıyla `POST /webhooks/bank/incoming` | `403` (yalnız sistem rolü) |
+
 ## Dış banka sahtesi (simülatör)
 
 Banka, `simulator` servisinde, compose ağında `http://simulator:8080` adresindedir (host'a açık değil).

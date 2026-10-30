@@ -307,9 +307,12 @@ paths:
       summary: Transfer başlat (banka içi havale)
       description: |
         İzin: `transfers:create` (müşteri yalnız kendi hesabından, operasyon uzmanı herhangi bir müşteri hesabından).
-        Alıcı IBAN ile verilir. Bu sürümde yalnız banka içi (INTERNAL) transfer vardır: bilinmeyen IBAN
-        `422 EXTERNAL_TRANSFER_UNAVAILABLE`, farklı para birimi `422 CURRENCY_MISMATCH` döner.
-        Transfer, defter kaydı ve denetim kaydı tek transaction'da yazılır. Aynı `Idempotency-Key` ile tekrar istek
+        Alıcı IBAN ile verilir. IBAN bankanın kendi hesabıysa transfer banka içidir (INTERNAL) ve hemen tamamlanır;
+        değilse dış bankaya gider (`type`: EFT ya da FAST, varsayılan FAST): para önce takas hesabına ayrılır (`RESERVED`),
+        gönderim worker'da arka planda yapılır ve sonuç `GET /transfers/{id}` ile izlenir
+        (`RESERVED → SENT → COMPLETED`; belirsizse `UNKNOWN`, banka reddederse `FAILED → REVERSED`: ters kayıtla para müşteriye döner).
+        Farklı para birimi `422 CURRENCY_MISMATCH` döner (çok para birimi ayrı adımda).
+        Transfer, defter kaydı, denetim kaydı ve (dış transferde) gönderim işi tek transaction'da yazılır. Aynı `Idempotency-Key` ile tekrar istek
         aynı sonucu döndürür (`Idempotent-Replayed: true`). Yetersiz bakiye `422 INSUFFICIENT_FUNDS` döner; bu da bir
         sonuçtur: `REJECTED` bir transfer kaydı yazılır (kimliği `X-Transfer-ID` başlığında) ve tekrar istek aynı reddi alır.
       tags: [Transfer]
@@ -323,7 +326,12 @@ paths:
             example: { from_account_id: 01a18de1-0448-7b9f-b5b8-129e6247d547, to_iban: TR450099900000000000000001, amount_minor: 25000, currency: TRY, description: Kira }
       responses:
         "201":
-          description: Transfer tamamlandı
+          description: Banka içi transfer tamamlandı
+          headers:
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Transfer" } } }
+        "202":
+          description: Dış transfer kabul edildi (`RESERVED`); bankaya gönderim arka planda yapılır
           headers:
             Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
           content: { application/json: { schema: { $ref: "#/components/schemas/Transfer" } } }
@@ -333,14 +341,17 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422":
           description: |
-            `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`, `SAME_ACCOUNT`, `BENEFICIARY_NOT_FOUND`,
-            `EXTERNAL_TRANSFER_UNAVAILABLE`, `ACCOUNT_NOT_ACTIVE` ya da `IDEMPOTENCY_KEY_REUSED`
+            `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`, `SAME_ACCOUNT`, `ACCOUNT_NOT_ACTIVE`,
+            `ACCOUNT_NOT_ALLOWED` ya da `IDEMPOTENCY_KEY_REUSED`
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     get:
       summary: Transferler (en yeni önce, keyset sayfalı)
-      description: "İzin: `own_banking` ya da `ledger:read`. Müşteri yalnız gönderen ya da alıcı olduğu transferleri görür."
+      description: |
+        İzin: `own_banking` ya da `ledger:read`. Müşteri yalnız gönderen ya da alıcı olduğu transferleri görür.
+        `state` ile süzülür (ör. operasyon uzmanı `UNKNOWN` transferleri listeler).
       tags: [Transfer]
       parameters:
+        - { name: state, in: query, schema: { type: string, enum: [CREATED, UNDER_REVIEW, PENDING_APPROVAL, RESERVED, SENT, UNKNOWN, COMPLETED, FAILED, REVERSED, REJECTED] } }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       responses:
@@ -401,6 +412,62 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/Invariants" } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/webhooks/bank/transfer-status:
+    post:
+      summary: Bankanın transfer sonuç bildirimi
+      description: |
+        İzin: `system:callbacks` (yalnız sistem rolü; simülatör bu rolle çağırır). Referans, bizim transfer kimliğimizdir.
+        Çift cevap sorun değildir: sonuçlanmış transfere gelen tekrar bildirim sessizce yok sayılır (para hareketi olmaz).
+        Tutar ya da para birimi transferle uyuşmazsa `422 BANK_RESULT_MISMATCH`.
+      tags: [Banka bildirimleri]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference, status, amount_minor, currency]
+              properties:
+                reference: { type: string, format: uuid }
+                status: { type: string, enum: [COMPLETED, REJECTED] }
+                amount_minor: { type: integer, format: int64, minimum: 1 }
+                currency: { type: string, enum: [TRY, USD, EUR] }
+      responses:
+        "200": { description: İşlendi ya da zaten sonuçlanmıştı }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: Bildirim transferle uyuşmuyor (`BANK_RESULT_MISMATCH`) ya da transfer dış transfer değil, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /api/v1/webhooks/bank/incoming:
+    post:
+      summary: Bankadan gelen transfer
+      description: |
+        İzin: `system:callbacks`. Alıcı müşteri hesabı alacaklanır, `NOSTRO` borçlanır. Banka referansı defterde tekildir:
+        aynı bildirim iki kez gelirse ikinci kez yazılmaz (`duplicate: true`).
+      tags: [Banka bildirimleri]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference, beneficiary_iban, amount_minor, currency]
+              properties:
+                reference: { type: string, maxLength: 100 }
+                beneficiary_iban: { type: string, minLength: 26, maxLength: 26 }
+                amount_minor: { type: integer, format: int64, minimum: 1 }
+                currency: { type: string, enum: [TRY, USD, EUR] }
+      responses:
+        "200":
+          description: Yazıldı ya da zaten yazılmıştı
+          content: { application/json: { schema: { type: object, properties: { ok: { type: boolean }, duplicate: { type: boolean } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { description: Alıcı hesap yok (`BENEFICIARY_NOT_FOUND`) ya da para birimi uyuşmuyor, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
 
   /health:
     get:
@@ -562,6 +629,7 @@ components:
       required: [from_account_id, to_iban, amount_minor, currency]
       additionalProperties: false
       properties:
+        type: { type: string, enum: [EFT, FAST], description: "Yalnız dış transferde; varsayılan FAST" }
         from_account_id: { type: string, format: uuid }
         to_iban: { type: string, minLength: 26, maxLength: 26 }
         amount_minor: { type: integer, format: int64, minimum: 1 }
@@ -581,7 +649,9 @@ components:
         currency: { type: string, enum: [TRY, USD, EUR] }
         description: { type: string }
         requested_by: { type: string, format: uuid }
-        journal_entry_id: { type: string, format: uuid, nullable: true }
+        journal_entry_id: { type: string, format: uuid, nullable: true, description: Defter kaydı (banka içi) ya da ayırma kaydı (dış) }
+        settlement_entry_id: { type: string, format: uuid, nullable: true, description: "Dış transfer: takasın kapanış kaydı" }
+        reversal_entry_id: { type: string, format: uuid, nullable: true, description: "Dış transfer başarısızsa ters kayıt" }
         failure_code: { type: string, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }

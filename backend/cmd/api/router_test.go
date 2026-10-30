@@ -71,6 +71,10 @@ func TestCustomerAndAccountWritePermissions(t *testing.T) {
 		{auth.RoleSystem, http.MethodPost, "/api/v1/transfers"},
 		{auth.RoleCustomer, http.MethodGet, "/api/v1/admin/invariants"},
 		{auth.RoleSystem, http.MethodGet, "/api/v1/transfers"},
+		// Banka bildirimleri yalnız "sistem" rolünün.
+		{auth.RoleOperations, http.MethodPost, "/api/v1/webhooks/bank/transfer-status"},
+		{auth.RoleCustomer, http.MethodPost, "/api/v1/webhooks/bank/incoming"},
+		{auth.RoleCompliance, http.MethodPost, "/api/v1/webhooks/bank/transfer-status"},
 	} {
 		token, _, err := tokens.IssueAccess(uuid.New(), tc.role)
 		require.NoError(t, err)

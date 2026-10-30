@@ -92,6 +92,10 @@ func newRouter(d routerDeps) http.Handler {
 			r.With(auth.Require(auth.PermTransfersCreate)).Post("/transfers", d.Transfers.Create)
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/transfers", d.Transfers.List)
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/transfers/{id}", d.Transfers.Get)
+
+			// Banka bildirimleri: yalnız "sistem" rolü (simülatör bu rolle giriş yapar).
+			r.With(auth.Require(auth.PermSystemCallbacks)).Post("/webhooks/bank/transfer-status", d.Transfers.BankStatus)
+			r.With(auth.Require(auth.PermSystemCallbacks)).Post("/webhooks/bank/incoming", d.Transfers.Incoming)
 		})
 	})
 

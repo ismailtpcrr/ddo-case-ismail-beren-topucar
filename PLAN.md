@@ -544,7 +544,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 
 ### C — Dış transfer ve saga (T-2, F-3)
 - [x] C1 `feat(sim)`: simülatöre dış banka (gecikme, zaman aşımı, %20 hata, %10 çift cevap, belirsiz sonuç, sorgulama)
-- [ ] C2 `feat(transfer)`: durum makinesi, outbox, worker'da gönderim/sorgulama, banka bildirimleri (sistem rolü), ters kayıt
+- [x] C2 `feat(transfer)`: durum makinesi, outbox, worker'da gönderim/sorgulama, banka bildirimleri (sistem rolü), ters kayıt
 - [ ] C3 `test(transfer)`: idempotency (eşzamanlı dahil), geçersiz geçiş, belirsiz sonuç ve telafi testleri + verify'a F-3, T-2
 
 ### D — İlk arayüz

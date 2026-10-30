@@ -69,8 +69,11 @@ services:
     environment:
       DATABASE_URL: postgres://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BANK_URL: http://simulator:8080
     depends_on:
       api:
+        condition: service_healthy
+      simulator:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "/app/healthcheck", "http://localhost:8080/health"]

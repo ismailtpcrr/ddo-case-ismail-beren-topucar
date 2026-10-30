@@ -36,12 +36,17 @@ function TransferForm() {
     if (minor === null || minor <= 0) return setError('Tutarı geçerli girin (ör. 1.250,50).')
     setBusy(true)
     try {
-      await api<Transfer>('/transfers', {
+      const tr = await api<Transfer>('/transfers', {
         method: 'POST',
         headers: { 'Idempotency-Key': key.current },
         body: { from_account_id: source.id, to_iban: cleanIban, amount_minor: minor, currency: source.currency, description: description.trim() },
       })
-      notifications.show({ color: 'green', title: 'Transfer tamamlandı', message: `${formatMoney(minor, source.currency)} gönderildi.` })
+      // Banka içi transfer hemen tamamlanır; dış banka transferi kabul edilir ve arka planda gönderilir (RESERVED).
+      notifications.show(
+        tr.state === 'COMPLETED'
+          ? { color: 'green', title: 'Transfer tamamlandı', message: `${formatMoney(minor, source.currency)} gönderildi.` }
+          : { color: 'blue', title: 'Transfer alındı', message: 'Dış bankaya gönderiliyor; durumu geçmişten izleyebilirsiniz.' },
+      )
       key.current = crypto.randomUUID()
       setAmount('')
       setDescription('')
@@ -110,6 +115,9 @@ export default function Transfers() {
     queryFn: ({ pageParam }) => api<Page<Transfer>>(`/transfers?limit=25${pageParam ? `&cursor=${pageParam}` : ''}`),
     initialPageParam: '',
     getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // Sonuçlanmamış dış transfer varken liste birkaç saniyede bir yenilenir.
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((p) => p.items.some((t) => ['RESERVED', 'SENT', 'UNKNOWN'].includes(t.state))) ? 3000 : false,
   })
   const rows = q.data?.pages.flatMap((p) => p.items) ?? []
 

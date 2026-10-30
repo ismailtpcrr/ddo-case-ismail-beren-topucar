@@ -22,7 +22,7 @@ func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
 // Create: POST /api/v1/transfers [Idempotency-Key] (izin: transfers:create)
 //
-// 201: transfer tamamlandı. 422 INSUFFICIENT_FUNDS: yetersiz bakiye; bu da bir sonuçtur ve REJECTED bir transfer
+// 201: banka içi transfer tamamlandı. 202: dış transfer kabul edildi (RESERVED); sonucu GET /transfers/{id} ile izlenir. 422 INSUFFICIENT_FUNDS: yetersiz bakiye; bu da bir sonuçtur ve REJECTED bir transfer
 // kaydı yazılır (kimliği yanıt başlığında).
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	key, err := idempotency.FromRequest(r)
@@ -42,6 +42,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
+	if t.State == Reserved { // dış transfer: kabul edildi, bankaya gönderim arka planda (worker) yapılır
+		httpx.WriteJSON(w, http.StatusAccepted, t)
+		return
+	}
 	if t.State == Rejected {
 		w.Header().Set("X-Transfer-ID", t.ID.String())
 		httpx.WriteError(w, r, apperr.New(http.StatusUnprocessableEntity, *t.FailureCode, "Hesapta yeterli kullanılabilir bakiye yok."))
@@ -50,15 +54,24 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, t)
 }
 
-// List: GET /api/v1/transfers?limit=&cursor= (izin: own_banking ya da ledger:read)
+// List: GET /api/v1/transfers?state=&limit=&cursor= (izin: own_banking ya da ledger:read)
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	req, err := httpx.ParsePage(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
+	var state *State
+	if v := r.URL.Query().Get("state"); v != "" {
+		st := State(v)
+		if _, known := transitions[st]; !known && st != Completed && st != Rejected && st != Reversed {
+			httpx.WriteError(w, r, apperr.ErrValidation.WithMessage("state geçerli bir transfer durumu olmalı."))
+			return
+		}
+		state = &st
+	}
 	p, _ := auth.PrincipalFrom(r.Context())
-	out, err := h.svc.List(r.Context(), p, req)
+	out, err := h.svc.List(r.Context(), p, state, req)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -80,4 +93,34 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, d)
+}
+
+// BankStatus: POST /api/v1/webhooks/bank/transfer-status (izin: system:callbacks). Bankanın sonuç bildirimi; çift cevap sorun değildir.
+func (h *Handler) BankStatus(w http.ResponseWriter, r *http.Request) {
+	var in BankResult
+	if err := httpx.DecodeJSON(w, r, &in); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	if err := h.svc.ApplyBankResult(r.Context(), in); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// Incoming: POST /api/v1/webhooks/bank/incoming (izin: system:callbacks). Bankadan gelen transferi müşteriye yazar;
+// aynı banka referansı tekrar gelirse ikinci kez yazılmaz (duplicate: true).
+func (h *Handler) Incoming(w http.ResponseWriter, r *http.Request) {
+	var in IncomingTransfer
+	if err := httpx.DecodeJSON(w, r, &in); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	dup, err := h.svc.ReceiveIncoming(r.Context(), in)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true, "duplicate": dup})
 }

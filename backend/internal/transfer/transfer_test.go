@@ -27,6 +27,7 @@ import (
 	"parakopru/internal/platform/db"
 	"parakopru/internal/platform/db/dbtest"
 	"parakopru/internal/platform/ids"
+	"parakopru/internal/platform/jobs"
 	"parakopru/internal/platform/page"
 	"parakopru/internal/transfer"
 )
@@ -39,6 +40,7 @@ type fixture struct {
 	accounts *account.Service
 	ledger   *ledger.Service
 	transfer *transfer.Service
+	bank     *fakeBank
 	ops      auth.Principal
 	opsCtx   context.Context
 	cust     *customer.Service
@@ -57,8 +59,10 @@ func newFixture(t *testing.T) fixture {
 	require.NoError(t, err)
 	led := ledger.NewService(txm, ids.V7{}, rec, accs)
 	ops := newUser(t, env, auth.RoleOperations)
+	fb := &fakeBank{}
 	return fixture{env: env, txm: txm, accounts: accs, ledger: led, cust: cust,
-		transfer: transfer.NewService(txm, ids.V7{}, rec, led, accs),
+		bank:     fb,
+		transfer: transfer.NewService(txm, ids.V7{}, rec, led, accs, jobs.NewQueue(ids.V7{}, clock.System{}), fb),
 		ops:      ops, opsCtx: auth.WithPrincipal(t.Context(), ops)}
 }
 
@@ -227,7 +231,6 @@ func TestBusinessRules(t *testing.T) {
 		{"alıcı başka para biriminde", p, in(from, usd, 1_00), transfer.ErrCurrencyMismatch},
 		{"kendine", p, in(from, from, 1_00), transfer.ErrSameAccount},
 		{"bozuk IBAN", p, bad(func(c *transfer.CreateInput) { c.ToIBAN = "TR000000000000000000000000" }), transfer.ErrInvalidIBAN},
-		{"dış banka IBAN'ı", p, bad(func(c *transfer.CreateInput) { c.ToIBAN = account.NewIBAN(999_999_999) }), transfer.ErrExternalNotReady},
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -279,10 +282,10 @@ func TestObjectLevelReadAccess(t *testing.T) {
 	_, err = f.transfer.Get(t.Context(), p, uuid.New())
 	require.ErrorIs(t, err, transfer.ErrNotFound)
 
-	mine, err := f.transfer.List(t.Context(), stranger, page.Request{Limit: 10})
+	mine, err := f.transfer.List(t.Context(), stranger, nil, page.Request{Limit: 10})
 	require.NoError(t, err)
 	require.Empty(t, mine.Items)
-	mine, err = f.transfer.List(t.Context(), q, page.Request{Limit: 10})
+	mine, err = f.transfer.List(t.Context(), q, nil, page.Request{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, mine.Items, 1, "alıcı da transferi görür")
 }

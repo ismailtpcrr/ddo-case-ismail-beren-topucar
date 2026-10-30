@@ -68,6 +68,10 @@ type Worker struct {
 	Concurrency  int           `env:"WORKER_CONCURRENCY"   envDefault:"4"`
 	PollInterval time.Duration `env:"WORKER_POLL_INTERVAL" envDefault:"1s"`
 	JobLease     time.Duration `env:"WORKER_JOB_LEASE"     envDefault:"2m"`
+
+	// Dış banka (simülatörün banka sahtesi) ve her çağrının zaman aşımı.
+	BankURL     string        `env:"BANK_URL"     envDefault:"http://simulator:8080"`
+	BankTimeout time.Duration `env:"BANK_TIMEOUT" envDefault:"3s"`
 }
 
 // Validate etiketlerle ifade edilemeyen kuralları kontrol eder.

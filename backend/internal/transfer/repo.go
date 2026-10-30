@@ -13,12 +13,12 @@ import (
 )
 
 const columns = `id, type, state, from_account_id, to_account_id, to_iban, amount_minor, currency, description,
-	requested_by, journal_entry_id, failure_code, created_at, updated_at`
+	requested_by, journal_entry_id, settlement_entry_id, reversal_entry_id, failure_code, created_at, updated_at`
 
 func scan(row pgx.Row) (Transfer, error) {
 	var t Transfer
 	err := row.Scan(&t.ID, &t.Type, &t.State, &t.FromAccountID, &t.ToAccountID, &t.ToIBAN, &t.AmountMinor, &t.Currency,
-		&t.Description, &t.RequestedBy, &t.JournalEntryID, &t.FailureCode, &t.CreatedAt, &t.UpdatedAt)
+		&t.Description, &t.RequestedBy, &t.JournalEntryID, &t.SettlementEntryID, &t.ReversalEntryID, &t.FailureCode, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Transfer{}, ErrNotFound
 	}
@@ -85,7 +85,7 @@ type cursor struct {
 }
 
 // list transferleri en yeni önce, keyset sayfalı listeler. customerID verilirse yalnız o müşterinin gönderdiği ya da aldıkları.
-func list(ctx context.Context, q db.DBTX, customerID *uuid.UUID, req page.Request) (page.Page[Transfer], error) {
+func list(ctx context.Context, q db.DBTX, customerID *uuid.UUID, state *State, req page.Request) (page.Page[Transfer], error) {
 	var after *uuid.UUID
 	if req.Cursor != "" {
 		var c cursor
@@ -96,10 +96,11 @@ func list(ctx context.Context, q db.DBTX, customerID *uuid.UUID, req page.Reques
 	}
 	rows, err := q.Query(ctx, `SELECT `+columns+` FROM transfers t
 		 WHERE ($2::uuid IS NULL OR t.id < $2)
+		   AND ($4::text IS NULL OR t.state = $4)
 		   AND ($1::uuid IS NULL
 		        OR t.from_account_id IN (SELECT id FROM accounts WHERE customer_id = $1)
 		        OR t.to_account_id   IN (SELECT id FROM accounts WHERE customer_id = $1))
-		 ORDER BY t.id DESC LIMIT $3`, customerID, after, req.Limit+1)
+		 ORDER BY t.id DESC LIMIT $3`, customerID, after, req.Limit+1, state)
 	if err != nil {
 		return page.Page[Transfer]{}, fmt.Errorf("transfer: list: %w", err)
 	}
@@ -108,4 +109,24 @@ func list(ctx context.Context, q db.DBTX, customerID *uuid.UUID, req page.Reques
 		return page.Page[Transfer]{}, err
 	}
 	return page.New(items, req.Limit, func(t Transfer) any { return cursor{ID: t.ID} })
+}
+
+// lock transferi satır kilidiyle okur: bildirim (webhook) ile worker aynı transferi aynı anda sonuçlandırmaya
+// çalışırsa biri bekler ve kilidi alınca güncel durumu görür.
+func lock(ctx context.Context, q db.DBTX, id uuid.UUID) (Transfer, error) {
+	return scan(q.QueryRow(ctx, `SELECT `+columns+` FROM transfers WHERE id = $1 FOR UPDATE`, id))
+}
+
+// setEntry transferin defter kaydı sütunlarından birini yazar (column sabit listedendir).
+func setEntry(ctx context.Context, q db.DBTX, id uuid.UUID, column string, entryID uuid.UUID) error {
+	switch column {
+	case "settlement_entry_id", "reversal_entry_id":
+	default:
+		return fmt.Errorf("transfer: bad column %q", column)
+	}
+	_, err := q.Exec(ctx, `UPDATE transfers SET `+column+` = $2, updated_at = now() WHERE id = $1`, id, entryID)
+	if err != nil {
+		return fmt.Errorf("transfer: set %s: %w", column, err)
+	}
+	return nil
 }

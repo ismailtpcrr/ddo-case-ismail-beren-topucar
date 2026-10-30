@@ -396,3 +396,35 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   tamamen rastgele (tohumsuz) hata (test tekrarlanamaz); ayrı bir banka servisi (şartname tek simülatör servisi istiyor).
 - **Sonuçlar / ödünleşimler:** Banka durumu bellekte tutulur; simülatör yeniden başlarsa unutur (sorgulama `NOT_FOUND` döner).
   Kaos senaryosunda bu bilerek kullanılabilir. Gerçek bir bankada durum kalıcıdır.
+
+## K-20 Dış transfer sagası: ayır → gönder → (sorgula) → tamamla ya da ters kayıtla telafi et
+
+*(PLAN.md §5.2, §7; PLAN §14 madde 10-11; C2 adımı.)*
+
+- **Bağlam:** proje.md Görev 2: dış servis zaman aşımı/çift cevap/belirsiz sonuç üretir; "belirsiz durumlarda sorgulama ve
+  telafi (ters kayıt) akışı çalışmalı; durum makinesi geçersiz geçişleri reddetmeli". Dış çağrı veritabanı transaction'ına
+  sığmaz; para ne kaybolmalı ne çift hareket etmeli.
+- **Karar (PLAN.md §5.2'yi uygular):**
+  - **Ayırma:** dış transfer kabul edilirken borç müşteri / alacak `EXTERNAL_CLEARING` (RESERVED); gönderim işi (`transfer.send`)
+    aynı transaction'da kuyruğa girer (outbox). Yanıt `202`. Yetersiz bakiye yine `REJECTED`.
+  - **Gönderim (worker):** RESERVED → SENT, sonra banka çağrısı (referans = transfer kimliğimiz; yeniden gönderim güvenli).
+    Cevap COMPLETED → takas kapanır (borç takas / alacak nostro). REJECTED → FAILED → `ledger.Reverse` ile ters kayıt → REVERSED.
+  - **Belirsizlik:** zaman aşımı, bağlantı hatası, 2xx dışı yanıt → SENT → UNKNOWN; para ayrılmış kalır, tahmine göre
+    hareket etmez. İş `RetryAfter(2 sn)` ile yeniden denenir ve bu kez bankaya *sorulur*: COMPLETED → tamamla;
+    REJECTED/NOT_FOUND → telafi. Sorgu da hata verirse yeniden denenir; deneme sınırı (10) aşılırsa iş `failed` olur ve
+    transfer UNKNOWN kalır: `GET /transfers?state=UNKNOWN` ile operasyon listesi.
+  - **Sonuçlandırma tek yerde (`settle`)** ve transfer satırı `FOR UPDATE` kilitli: worker, sorgu ve banka bildirimi
+    (webhook) aynı anda gelse bile tek biri işler, sonraki terminal durumu görüp sessizce çıkar (çift cevap). Bildirim
+    gönderim kaydından önce gelirse RESERVED → SENT → sonuç sırasıyla işlenir (geçiş tablosu atlanmaz).
+  - **Webhook'lar** (`system:callbacks`, yalnız sistem rolü): `transfer-status` ve `incoming`. Gelen transferde banka referansı
+    `journal_entries`'te kısmi tekil dizinle (`kind = INCOMING_TRANSFER`) tekildir: aynı bildirim iki kez alacak yazamaz.
+  - **Telafi kaydı** özgün ayırma kaydını silmez; `reversal_of` ile bağlı yeni kayıttır (T-7 ile uyumlu).
+- **Değerlendirilen alternatifler:** NOT_FOUND'da yeniden göndermek (kullanıcı deneyimi daha iyi; ama PLAN §5.2 telafiyi
+  istiyor ve "telafi akışı çalışmalı" şartnamenin açık isteği); belirsiz durumda hemen ters kayıt (banka işlemişse müşteriye
+  çift para: en tehlikeli hata); transfer işini API isteğinde senkron yapmak (zaman aşımı ve çift gönderim riski).
+- **Sonuçlar / ödünleşimler:**
+  - Bilinen sınırlama: banka `NOT_FOUND` dedikten *sonra* gecikmiş bir isteği işlerse para iki kez çıkabilir (gerçek
+    bankalarda "geç işleme"); çözüm bankanın referansı kapatması/iptal API'sidir. Simülatör bunu yapmaz (zaman aşımında
+    işlemeden bağlantıyı keser, işleme ya hemen olur ya hiç olmaz).
+  - Belirsiz kalan transferler (deneme sınırı aşıldı) elle çözülene kadar para ayrılmış durumdadır; operasyon ekranı K2'de.
+  - Dört göz onayı ve risk incelemesi (PENDING_APPROVAL/UNDER_REVIEW) F2/J1'de aynı makineye bağlanır.

@@ -249,3 +249,53 @@ Authorization: Bearer {{loginOps.response.body.access_token}}
 ### Yetki ihlali: müşteri değişmezleri göremez — 403
 GET {{baseUrl}}/api/v1/admin/invariants
 Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+# ---------------------------------------------------------------------------
+# Dış banka transferi (F-3, T-2): ayırma → worker gönderir → banka sonucu → tamamlanır ya da ters kayıt
+# ---------------------------------------------------------------------------
+
+### Dış banka transferi (müşteri) — 202 RESERVED; birkaç saniye sonra COMPLETED (ya da belirsizlik → UNKNOWN → sorgu → COMPLETED/REVERSED)
+# IBAN bankanın dışında: TR110099900000000000777777
+# @name externalTransfer
+POST {{baseUrl}}/api/v1/transfers
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"type": "FAST", "from_account_id": "{{myAccounts.response.body.$.items[0].id}}", "to_iban": "TR110099900000000000777777", "amount_minor": 5000, "currency": "TRY", "description": "Dış banka"}
+
+### Dış transferin durumu ve geçmişi (RESERVED → SENT → COMPLETED / UNKNOWN / FAILED → REVERSED)
+GET {{baseUrl}}/api/v1/transfers/{{externalTransfer.response.body.id}}
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Belirsiz (UNKNOWN) transferler (operasyon)
+GET {{baseUrl}}/api/v1/transfers?state=UNKNOWN
+Authorization: Bearer {{loginOps.response.body.access_token}}
+
+### Sistem rolü olarak giriş (banka bildirimleri için)
+# @name loginSistem
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "sistem@parakopru.test", "password": "{{password}}"}
+
+### Banka sonuç bildirimi (sistem) — çift gönderim sorun değil: 200, para bir kez hareket eder
+POST {{baseUrl}}/api/v1/webhooks/bank/transfer-status
+Authorization: Bearer {{loginSistem.response.body.access_token}}
+Content-Type: application/json
+
+{"reference": "{{externalTransfer.response.body.id}}", "status": "COMPLETED", "amount_minor": 5000, "currency": "TRY"}
+
+### Bankadan gelen transfer (sistem) — aynı reference tekrar gelirse duplicate: true
+POST {{baseUrl}}/api/v1/webhooks/bank/incoming
+Authorization: Bearer {{loginSistem.response.body.access_token}}
+Content-Type: application/json
+
+{"reference": "banka-ref-0001", "beneficiary_iban": "{{payee.response.body.iban}}", "amount_minor": 12500, "currency": "TRY"}
+
+### Yetki ihlali: operasyon banka bildirimi gönderemez — 403
+POST {{baseUrl}}/api/v1/webhooks/bank/incoming
+Authorization: Bearer {{loginOps.response.body.access_token}}
+Content-Type: application/json
+
+{"reference": "x", "beneficiary_iban": "TR110099900000000000777777", "amount_minor": 1, "currency": "TRY"}

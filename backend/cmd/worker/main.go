@@ -19,12 +19,19 @@ import (
 	"syscall"
 	"time"
 
+	"parakopru/internal/account"
+	"parakopru/internal/bank"
+	"parakopru/internal/customer"
+	"parakopru/internal/ledger"
+	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/clock"
 	"parakopru/internal/platform/config"
 	"parakopru/internal/platform/db"
 	"parakopru/internal/platform/health"
+	"parakopru/internal/platform/ids"
 	"parakopru/internal/platform/jobs"
 	"parakopru/internal/platform/observability"
+	"parakopru/internal/transfer"
 )
 
 func main() {
@@ -56,7 +63,19 @@ func run() error {
 		PollInterval: cfg.PollInterval,
 		Lease:        cfg.JobLease,
 	})
-	// İş türleri ilgili adımlarda burada kaydedilir (ör. runner.Handle("transfer.send", …)).
+	// Bileşenler composition root'ta bağlanır (api ile aynı servisler; banka istemcisi yalnız burada).
+	clk := clock.System{}
+	idGen := ids.V7{}
+	txm := db.NewTxManager(pool)
+	recorder := audit.NewRecorder(idGen)
+	customerSvc := customer.NewService(txm, idGen, recorder)
+	accountSvc := account.NewService(txm, customerSvc, idGen, clk, recorder)
+	ledgerSvc := ledger.NewService(txm, idGen, recorder, accountSvc)
+	transferSvc := transfer.NewService(txm, idGen, recorder, ledgerSvc, accountSvc, jobs.NewQueue(idGen, clk),
+		bank.New(cfg.BankURL, cfg.BankTimeout))
+
+	// İş türleri.
+	runner.Handle(transfer.JobSend, transferSvc.HandleSend)
 
 	// Sağlık ucu: Docker healthcheck için; veritabanı erişimini kontrol eder.
 	mux := http.NewServeMux()

@@ -25,6 +25,7 @@ import (
 	"parakopru/internal/platform/db"
 	"parakopru/internal/platform/health"
 	"parakopru/internal/platform/ids"
+	"parakopru/internal/platform/jobs"
 	"parakopru/internal/platform/observability"
 	"parakopru/internal/transfer"
 	"parakopru/migrations"
@@ -74,7 +75,8 @@ func run() error {
 	customerSvc := customer.NewService(txm, idGen, recorder)
 	accountSvc := account.NewService(txm, customerSvc, idGen, clk, recorder)
 	ledgerSvc := ledger.NewService(txm, idGen, recorder, accountSvc)
-	transferSvc := transfer.NewService(txm, idGen, recorder, ledgerSvc, accountSvc)
+	// Dış bankaya gönderimi worker yapar; api yalnız işi kuyruğa ekler (outbox) ve banka bildirimlerini işler.
+	transferSvc := transfer.NewService(txm, idGen, recorder, ledgerSvc, accountSvc, jobs.NewQueue(idGen, clk), nil)
 
 	// Temel seed: demo kullanıcılar, iç hesaplar, demo müşteri ve açılış bakiyeleri. Var olana dokunmaz; her açılışta
 	// güvenle çalışır.

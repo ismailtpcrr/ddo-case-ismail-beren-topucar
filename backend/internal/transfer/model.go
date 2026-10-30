@@ -63,20 +63,22 @@ func CanTransition(from, to State) bool {
 
 // Transfer bir transfer kaydıdır.
 type Transfer struct {
-	ID             uuid.UUID      `json:"id"`
-	Type           Type           `json:"type"`
-	State          State          `json:"state"`
-	FromAccountID  uuid.UUID      `json:"from_account_id"`
-	ToAccountID    *uuid.UUID     `json:"to_account_id"`
-	ToIBAN         string         `json:"to_iban"`
-	AmountMinor    int64          `json:"amount_minor"`
-	Currency       money.Currency `json:"currency"`
-	Description    string         `json:"description"`
-	RequestedBy    uuid.UUID      `json:"requested_by"`
-	JournalEntryID *uuid.UUID     `json:"journal_entry_id"`
-	FailureCode    *string        `json:"failure_code"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	ID                uuid.UUID      `json:"id"`
+	Type              Type           `json:"type"`
+	State             State          `json:"state"`
+	FromAccountID     uuid.UUID      `json:"from_account_id"`
+	ToAccountID       *uuid.UUID     `json:"to_account_id"`
+	ToIBAN            string         `json:"to_iban"`
+	AmountMinor       int64          `json:"amount_minor"`
+	Currency          money.Currency `json:"currency"`
+	Description       string         `json:"description"`
+	RequestedBy       uuid.UUID      `json:"requested_by"`
+	JournalEntryID    *uuid.UUID     `json:"journal_entry_id"`
+	SettlementEntryID *uuid.UUID     `json:"settlement_entry_id"`
+	ReversalEntryID   *uuid.UUID     `json:"reversal_entry_id"`
+	FailureCode       *string        `json:"failure_code"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
 }
 
 // Event bir durum geçişidir.
@@ -95,6 +97,7 @@ type Detail struct {
 
 // CreateInput transfer isteğidir.
 type CreateInput struct {
+	Type          Type           `json:"type"            validate:"omitempty,oneof=EFT FAST"` // yalnız dış transferde; varsayılan FAST
 	FromAccountID uuid.UUID      `json:"from_account_id" validate:"required"`
 	ToIBAN        string         `json:"to_iban"         validate:"required,len=26"`
 	AmountMinor   int64          `json:"amount_minor"    validate:"required,gt=0"`
@@ -106,7 +109,8 @@ var (
 	ErrNotFound         = apperr.ErrNotFound.WithMessage("Transfer bulunamadı.")
 	ErrInvalidIBAN      = apperr.New(http.StatusBadRequest, "INVALID_IBAN", "Alıcı IBAN'ı geçersiz.")
 	ErrBeneficiary      = apperr.New(http.StatusUnprocessableEntity, "BENEFICIARY_NOT_FOUND", "Alıcı hesap bulunamadı.")
-	ErrExternalNotReady = apperr.New(http.StatusUnprocessableEntity, "EXTERNAL_TRANSFER_UNAVAILABLE", "Dış banka transferleri henüz desteklenmiyor.")
+	ErrBankMismatch     = apperr.New(http.StatusUnprocessableEntity, "BANK_RESULT_MISMATCH", "Banka bildirimi transfer kaydıyla uyuşmuyor.")
+	ErrNotExternal      = apperr.New(http.StatusUnprocessableEntity, "NOT_EXTERNAL_TRANSFER", "Bu işlem yalnız dış banka transferleri içindir.")
 	ErrCurrencyMismatch = apperr.New(http.StatusUnprocessableEntity, "CURRENCY_MISMATCH", "Transfer para birimi, gönderen hesabın para birimiyle aynı olmalı.")
 	ErrSameAccount      = apperr.New(http.StatusUnprocessableEntity, "SAME_ACCOUNT", "Gönderen ve alıcı hesap aynı olamaz.")
 	ErrAccountInactive  = apperr.New(http.StatusUnprocessableEntity, "ACCOUNT_NOT_ACTIVE", "Hesap kapalı.")
