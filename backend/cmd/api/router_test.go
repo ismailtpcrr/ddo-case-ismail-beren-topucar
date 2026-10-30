@@ -1,0 +1,160 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
+
+	"parakopru/internal/platform/health"
+	"parakopru/internal/platform/httpx"
+	"parakopru/internal/platform/ids"
+	"parakopru/internal/platform/observability"
+)
+
+type testServer struct {
+	handler http.Handler
+	logs    *bytes.Buffer
+}
+
+func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) testServer {
+	t.Helper()
+	logs := &bytes.Buffer{}
+	h := newRouter(routerDeps{
+		Logger:         observability.NewLogger(logs, slog.LevelDebug, "api"),
+		IDs:            &ids.Sequence{},
+		RequestTimeout: 50 * time.Millisecond,
+		HealthChecks:   checks,
+	})
+	if extra != nil {
+		extra(h.(chi.Router))
+	}
+	return testServer{handler: h, logs: logs}
+}
+
+func (s testServer) do(t *testing.T, method, path string, header http.Header) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error struct{ Code, Message string } `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NotEmpty(t, body.Error.Message)
+	return body.Error.Code
+}
+
+func TestHealthOK(t *testing.T) {
+	s := newTestServer(t, []health.Check{{Name: "database", Run: func(context.Context) error { return nil }}}, nil)
+
+	rec := s.do(t, http.MethodGet, "/health", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.JSONEq(t, `{"status":"ok","checks":{"database":"ok"}}`, rec.Body.String())
+}
+
+func TestHealthUnavailableWhenDatabaseDown(t *testing.T) {
+	failing := health.Check{Name: "database", Run: func(context.Context) error {
+		return errors.New("dial tcp 10.0.0.5:5432: connection refused")
+	}}
+	s := newTestServer(t, []health.Check{failing}, nil)
+
+	rec := s.do(t, http.MethodGet, "/health", nil)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.JSONEq(t, `{"status":"unavailable","checks":{"database":"unavailable"}}`, rec.Body.String())
+	require.NotContains(t, rec.Body.String(), "10.0.0.5", "iç ayrıntı yanıtta olmamalı")
+	require.Contains(t, s.logs.String(), "connection refused", "ayrıntı loga yazılmalı")
+}
+
+func TestUnknownRouteReturnsJSON404(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+
+	rec := s.do(t, http.MethodGet, "/yok", nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, "NOT_FOUND", errorCode(t, rec))
+}
+
+func TestWrongMethodReturnsJSON405(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+
+	rec := s.do(t, http.MethodDelete, "/health", nil)
+	require.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+	require.Equal(t, "METHOD_NOT_ALLOWED", errorCode(t, rec))
+}
+
+func TestRequestIDGeneratedOrPropagated(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+
+	rec := s.do(t, http.MethodGet, "/health", nil)
+	require.Equal(t, "00000000-0000-7000-8000-000000000001", rec.Header().Get(httpx.RequestIDHeader))
+
+	rec = s.do(t, http.MethodGet, "/health", http.Header{"X-Request-Id": {"istemci-123"}})
+	require.Equal(t, "istemci-123", rec.Header().Get(httpx.RequestIDHeader))
+
+	// Satır sonu içeren kimlik log enjeksiyonu olabilir; yerine yenisi üretilir.
+	rec = s.do(t, http.MethodGet, "/health", http.Header{"X-Request-Id": {"kötü\nsatır"}})
+	require.NotContains(t, rec.Header().Get(httpx.RequestIDHeader), "\n")
+	require.NotEmpty(t, rec.Header().Get(httpx.RequestIDHeader))
+}
+
+func TestPanicBecomesJSON500AndIsLogged(t *testing.T) {
+	s := newTestServer(t, nil, func(r chi.Router) {
+		r.Get("/boom", func(http.ResponseWriter, *http.Request) { panic("beklenmedik durum") })
+	})
+
+	rec := s.do(t, http.MethodGet, "/boom", nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	require.Equal(t, "INTERNAL", errorCode(t, rec))
+	require.NotContains(t, rec.Body.String(), "beklenmedik durum")
+	require.Contains(t, s.logs.String(), "panic recovered")
+	require.Contains(t, s.logs.String(), `"status":500`, "access log 500'ü kaydetmeli")
+
+	// Süreç ayakta: sonraki istek normal çalışır.
+	require.Equal(t, http.StatusOK, s.do(t, http.MethodGet, "/health", nil).Code)
+}
+
+func TestRequestTimeoutBecomes504(t *testing.T) {
+	s := newTestServer(t, nil, func(r chi.Router) {
+		r.Get("/slow", func(w http.ResponseWriter, r *http.Request) {
+			<-r.Context().Done() // ör. süren bir veritabanı sorgusu
+			httpx.WriteError(w, r, r.Context().Err())
+		})
+	})
+
+	rec := s.do(t, http.MethodGet, "/slow", nil)
+	require.Equal(t, http.StatusGatewayTimeout, rec.Code)
+	require.Equal(t, "TIMEOUT", errorCode(t, rec))
+}
+
+func TestAccessLogLine(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+	s.do(t, http.MethodGet, "/yok?q=1", http.Header{"Authorization": {"Bearer gizli-token"}})
+
+	var line map[string]any
+	last := strings.TrimSpace(s.logs.String())
+	require.NoError(t, json.Unmarshal([]byte(last[strings.LastIndex(last, "\n")+1:]), &line))
+	require.Equal(t, "http request", line["msg"])
+	require.Equal(t, "GET", line["method"])
+	require.Equal(t, "/yok", line["path"])
+	require.EqualValues(t, 404, line["status"])
+	require.NotEmpty(t, line["request_id"])
+	require.Contains(t, line, "duration_ms")
+	require.NotContains(t, s.logs.String(), "gizli-token")
+}

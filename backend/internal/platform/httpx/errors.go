@@ -36,5 +36,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		observability.Logger(r.Context()).Error("request failed",
 			slog.String("code", ae.Code), slog.Any("error", err))
 	}
+	writeAppError(w, ae)
+}
+
+func writeAppError(w http.ResponseWriter, ae *apperr.Error) {
 	WriteJSON(w, ae.Status, errorBody{Error: errorDetail{Code: ae.Code, Message: ae.Message}})
 }

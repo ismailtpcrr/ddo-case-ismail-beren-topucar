@@ -1,0 +1,14 @@
+# ParaKöprü — elle deneme koleksiyonu (VS Code REST Client eklentisi)
+# Sistem ayaktayken (docker compose up) her isteğin üstündeki "Send Request" ile çalıştırılır.
+
+@baseUrl = http://localhost:8080
+
+### Sağlık kontrolü — kimlik doğrulaması gerekmez; veritabanı erişilemezse 503
+GET {{baseUrl}}/health
+
+### Tanımsız uç nokta — tutarlı hata biçimi: 404 {"error":{"code":"NOT_FOUND",...}}
+GET {{baseUrl}}/api/v1/olmayan-uc
+
+### İstek kimliği — gönderilen X-Request-ID yanıtta aynen döner
+GET {{baseUrl}}/health
+X-Request-ID: deneme-12345

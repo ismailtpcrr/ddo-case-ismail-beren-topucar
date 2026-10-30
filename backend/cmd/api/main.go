@@ -1,0 +1,89 @@
+// Command api, ParaKöprü HTTP API sürecidir.
+//
+// Bu dosya "composition root"tur: bütün bileşenler burada oluşturulur ve birbirine bağlanır
+// (constructor injection). Başka hiçbir paket global bağlantı ya da singleton tutmaz.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"parakopru/internal/platform/config"
+	"parakopru/internal/platform/db"
+	"parakopru/internal/platform/health"
+	"parakopru/internal/platform/ids"
+	"parakopru/internal/platform/observability"
+)
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("api stopped with error", slog.Any("error", err))
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg, err := config.Load[config.API]()
+	if err != nil {
+		return err
+	}
+	log := observability.NewLogger(os.Stdout, cfg.LogLevel, "api")
+	slog.SetDefault(log)
+
+	// SIGTERM (docker stop) ya da Ctrl+C gelince ctx iptal olur ve düzgün kapanış başlar.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	pool, err := db.Connect(ctx, cfg.DatabaseURL, cfg.DBMaxConns)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	handler := newRouter(routerDeps{
+		Logger:         log,
+		IDs:            ids.V7{},
+		RequestTimeout: cfg.RequestTimeout,
+		HealthChecks:   []health.Check{{Name: "database", Run: pool.Ping}},
+	})
+
+	srv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// Yanıt yazma süresi istek zaman aşımından biraz uzun olmalı ki 504 cevabı yazılabilsin.
+		WriteTimeout: cfg.RequestTimeout + 5*time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		log.Info("http server listening", slog.String("addr", cfg.HTTPAddr))
+		serveErr <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serveErr:
+		return fmt.Errorf("http server: %w", err)
+	case <-ctx.Done():
+		log.Info("shutdown signal received")
+	}
+
+	// Düzgün kapanış: yeni bağlantı kabul edilmez, süren istekler ShutdownTimeout'a kadar tamamlanır.
+	// Ardından (defer) veritabanı havuzu kapanır.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("http shutdown: %w", err)
+	}
+	log.Info("http server stopped")
+	return nil
+}

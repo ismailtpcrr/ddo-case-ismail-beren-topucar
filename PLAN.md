@@ -159,7 +159,6 @@ func NewService(tx *db.TxManager, repo *Repo, l LedgerPoster, b BankClient, r Ri
 - **Yapılandırma:** tüm ayarlar ortam değişkeninden bir `Config` struct'ına; eksik zorunlu ayarda program başlamaz.
 - **Saat ve kimlik üretimi enjekte edilir** (`clock.Clock`, `ids.Generator`) → faiz, provizyon süresi ve zaman yolculuğu testleri deterministik.
 - **Adlandırma:** kod adları İngilizce; yorumlar ve dokümanlar Türkçe.
-- **Mesaj dili:** kullanıcıya dönen hata mesajları Türkçe (arayüz Türkçe); hata kodları ve log mesajları İngilizce (makine tarafından aranır/eşleştirilir).
 
 ---
 
@@ -391,7 +390,7 @@ Denetçi her yerde **salt okur**; hiçbir yazma ucuna erişemez.
 **Kurallar**
 - Taban yol `/api/v1`; JSON alanları `snake_case`; tutarlar her zaman `amount_minor` (tam sayı) + `currency`, asla ondalıklı sayı.
 - Hata: `{"error":{"code":"INSUFFICIENT_FUNDS","message":"…"}}`. Durum kodları: 200/201/202 · 400 doğrulama · 401 · 403 · 404 ·
-  409 çakışma/geçersiz geçiş · 413 gövde çok büyük · 422 iş kuralı · 500 · 503 (sağlıksız) · 504 (istek zaman aşımı).
+  409 çakışma/geçersiz geçiş · 422 iş kuralı · 500 · 503 (sağlıksız).
 - Liste uçları keyset sayfalı: `?limit=50&cursor=…` → `{"items":[…],"next_cursor":"…"}`.
 - Para hareketi yapan her `POST` `Idempotency-Key` ister (yoksa 400).
 - Her yanıtta `X-Request-ID`. Belgeler: `GET /openapi.yaml` ve `GET /docs`.
@@ -504,7 +503,6 @@ backend/
     api/  worker/  simulator/  verify/  healthcheck/
   internal/
     platform/      config · db (TxManager, DBTX, migrasyon) · httpx (hata, JSON, sayfalama) · auth (jwt, argon2, rbac)
-                   apperr · page (keyset sayfa tipleri; servis/repo da kullanır, HTTP bilmez)
                    audit · idempotency · jobs · clock · ids · observability (log, metrik, trace)
     money/         Amount, Currency, yuvarlama
     customer/  account/  ledger/  transfer/  card/  fx/  interest/  recon/  risk/
@@ -529,7 +527,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 ### A — İskelet ve altyapı
 - [x] A1 `chore`: depo iskeleti, `.gitignore`, `.env.example`, `Makefile` iskeleti
 - [x] A2 `feat(platform)`: Go modülü, config, slog JSON log, `apperr` + `httpx` (hata biçimi, JSON, sayfalama), clock, ids
-- [ ] A3 `feat(api)`: chi router, istek middleware'leri (request id, log, recover, zaman aşımı), `GET /health` (DB dahil), graceful shutdown
+- [x] A3 `feat(api)`: chi router, istek middleware'leri (request id, log, recover, zaman aşımı), `GET /health` (DB dahil), graceful shutdown
 - [ ] A4 `feat(db)`: `TxManager` (yeniden denemeli), goose ile ilk migrasyonlar, iki DB rolü, `api` açılışında advisory lock ile migrasyon
 - [ ] A5 `build`: Go ve frontend Dockerfile'ları, `healthcheck` binary'si, compose (her serviste healthcheck, tüm bağımlılıklar `service_healthy`, root olmayan kullanıcılar), boş frontend sayfası
 - [ ] A6 `feat(auth)`: `users`, 6 rol, argon2id, JWT access + refresh çerezi, izin tablosu ve `Require` middleware, demo hesap seed'i

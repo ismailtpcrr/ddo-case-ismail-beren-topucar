@@ -84,4 +84,6 @@ var (
 	ErrInternal     = New(http.StatusInternalServerError, "INTERNAL", "Beklenmeyen bir hata oluştu.")
 	ErrUnavailable  = New(http.StatusServiceUnavailable, "UNAVAILABLE", "Servis geçici olarak kullanılamıyor.")
 	ErrTimeout      = New(http.StatusGatewayTimeout, "TIMEOUT", "İstek zaman aşımına uğradı.")
+
+	ErrMethodNotAllowed = New(http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Bu uç nokta bu HTTP yöntemini desteklemiyor.")
 )

@@ -1,0 +1,87 @@
+openapi: 3.0.3
+info:
+  title: ParaKöprü API
+  version: 0.1.0
+  description: |
+    Dijital banka çekirdeği: hesaplar, çift taraflı defter, transferler, kart provizyonları,
+    faiz, risk kuralları ve mutabakat.
+
+    - Tutarlar her zaman tam sayı `amount_minor` (kuruş/sent) + `currency` olarak taşınır; ondalıklı sayı kullanılmaz.
+    - Her hata `{"error":{"code","message"}}` biçimindedir.
+    - Her yanıtta `X-Request-ID` başlığı döner; istekte geçerli bir `X-Request-ID` gönderilirse aynısı kullanılır.
+servers:
+  - url: http://localhost:8080
+
+paths:
+  /health:
+    get:
+      summary: Sağlık durumu (veritabanı bağlantısı dahil)
+      description: Kimlik doğrulaması gerektirmez; Docker healthcheck ve `make verify` kullanır.
+      tags: [Sistem]
+      security: []
+      responses:
+        "200":
+          description: Tüm kontroller geçti
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              example: { status: ok, checks: { database: ok } }
+        "503":
+          description: En az bir kontrol başarısız
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              example: { status: unavailable, checks: { database: unavailable } }
+
+components:
+  headers:
+    RequestID:
+      description: İsteğin kimliği (loglarda `request_id`)
+      schema: { type: string }
+
+  schemas:
+    Health:
+      type: object
+      required: [status, checks]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        checks:
+          type: object
+          additionalProperties: { type: string, enum: [ok, unavailable] }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Makine okunur hata kodu
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              description: Kullanıcıya gösterilecek açıklama (Türkçe)
+              example: currency zorunludur.
+
+  responses:
+    BadRequest:
+      description: Girdi doğrulama hatası (`VALIDATION_ERROR`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Kayıt ya da uç nokta yok (`NOT_FOUND`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    MethodNotAllowed:
+      description: Yöntem desteklenmiyor (`METHOD_NOT_ALLOWED`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TooLarge:
+      description: İstek gövdesi 1 MiB'tan büyük (`REQUEST_TOO_LARGE`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Internal:
+      description: Beklenmeyen hata (`INTERNAL`); ayrıntı yalnız loglarda
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Timeout:
+      description: İstek süre sınırını aştı (`TIMEOUT`)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
