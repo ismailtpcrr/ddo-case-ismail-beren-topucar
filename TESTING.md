@@ -30,7 +30,9 @@ bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır.
 | `F-1` | Müşteri ve 3 hesap aç (vadesiz TRY/USD, vadeli EUR); kurallar; tekrar kimlik; müşteri hesap açmayı dener; simülatör verisi | `201`, IBAN'lı hesaplar; vade/para birimi kuralı ihlali `400`; aynı kimlik `409`; müşteri `403`; keyset sayfalamayla ≥ 20.000 müşteri |
 | `F-2` | Demo hesaptan yeni hesaba 123,45 TL havale; bakiye, hareket ve kayıt sorguları | İki bakiye tam tutar kadar değişir; hareketlerin toplamı bakiyeye eşit; kayıtta borç = alacak; yetersiz bakiye `422`; transfer kaydı elle ters çevrilemez `422`; `/admin/invariants` ok |
 | `T-1` | Simülatör müşterilerinden 40 hesap arasında 10.000 eşzamanlı transfer (48 işçi, HTTP) | Her transfer 201 ya da 422 `INSUFFICIENT_FUNDS`; her hesapta bakiye = başlangıç − giden + gelen; 40 hesabın toplamı değişmez; `/admin/invariants` önce ve sonra ok. Tipik süre ≈ 4-5 sn |
-| `F-3` … `F-8`, `T-2` … `T-7` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
+| `F-3` | EFT + FAST dış transfer (gerçek banka sahtesi); bozuk IBAN; farklı para birimi; yetersiz bakiye; gelen dış transfer (çift bildirim); operasyonun banka bildirimi göndermeyi denemesi | Transferler `COMPLETED` ya da `REVERSED` olur, gönderen bakiyesi tamamlananlar kadar düşer; `400 INVALID_IBAN`, `422 CURRENCY_MISMATCH`, `422 INSUFFICIENT_FUNDS`; gelen transfer iki bildirimde bir kez yazılır; bildirim yalnız sistem rolünde `200`, operasyonda `403` |
+| `T-2` | Aynı Idempotency-Key ile 20 eşzamanlı istek; farklı gövde; anahtarsız; 100 eşzamanlı dış transfer (%20 hata, %10 çift cevap); çift ve çelişkili banka bildirimi | Tek transfer, bakiye bir kez düşer, diğerleri `Idempotent-Replayed`; `422 IDEMPOTENCY_KEY_REUSED`, `400 IDEMPOTENCY_KEY_REQUIRED`; 100 transferin hepsi `COMPLETED` ya da `REVERSED` (tipik 88-92 tamamlanır, 8-12 telafi edilir); `EXTERNAL_CLEARING` değişmez, `NOSTRO` tamamlananlar kadar azalır; çelişkili bildirim transferi ve parayı değiştirmez, tutar uyuşmazlığı `422`. Tipik süre 14-17 sn |
+| `F-4` … `F-8`, `T-3` … `T-7` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
 
 Yerelde (compose dışında) çalıştırmak için:
 
@@ -234,6 +236,15 @@ conservation_test.go:143: [rapid] OK, passed 100 tests (4.521866208s)
 | Gönderim işi outbox'tan | `go test -run TestExternalTransferCompletes -v ./internal/transfer/` | Ayırma kaydıyla aynı transaction'da `transfer.send` işi kuyruğa girer; iş tekrar çalışsa banka bir kez çağrılır |
 | Gelen dış transfer | [requests.http](requests.http) "Bankadan gelen transfer" (sistem token'ı); `go test -run TestIncomingTransferIsIdempotentByBankReference ./internal/transfer/` | Alıcı alacaklanır, `NOSTRO` borçlanır; aynı banka referansı ikinci kez `duplicate:true`, tekrar yazılmaz |
 | Bildirim yetkisi | Operasyon/müşteri token'ıyla `POST /webhooks/bank/incoming` | `403` (yalnız sistem rolü) |
+
+### T-2 kanıt komutları
+
+| Ne | Komut |
+|---|---|
+| API üzerinden uçtan uca (idempotency + saga) | `make verify` → `F-3`, `T-2` satırları |
+| Geçersiz geçişin reddi (`409 INVALID_STATE_TRANSITION`) | `cd backend && go test -run 'TestInvalidTransitionIsRejected|TestStateMachine' -v ./internal/transfer/` |
+| Eşzamanlı aynı anahtar (banka içi ve dış) | `go test -run 'TestConcurrentRequestsWithSameKey|TestExternalConcurrentSameKeyReservesOnce' -v ./internal/transfer/` |
+| Idempotency katmanı (yarım yazma geri alınır, ret saklanır) | `go test -v ./internal/platform/idempotency/` |
 
 ## Dış banka sahtesi (simülatör)
 

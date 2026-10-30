@@ -310,3 +310,46 @@ func TestIncomingTransferIsIdempotentByBankReference(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, inv.OK)
 }
+
+// Geçersiz durum geçişi reddedilir (409 INVALID_STATE_TRANSITION) ve hiçbir şey değişmez; geçerli geçiş çalışır.
+func TestInvalidTransitionIsRejected(t *testing.T) {
+	e, _ := newExt(t)
+	tr := e.create(t, "ext-inv", 10_00) // RESERVED
+
+	for _, to := range []transfer.State{transfer.Completed, transfer.Created, transfer.Reversed, transfer.Unknown} {
+		err := e.transfer.MoveForTest(t.Context(), tr.ID, to)
+		require.ErrorIs(t, err, transfer.ErrInvalidTransition, "RESERVED → %s", to)
+		var ae *apperr.Error
+		require.ErrorAs(t, err, &ae)
+		require.Equal(t, 409, ae.Status)
+	}
+	require.Equal(t, transfer.Reserved, e.state(t, tr.ID).State)
+
+	require.NoError(t, e.transfer.MoveForTest(t.Context(), tr.ID, transfer.Sent), "geçerli geçiş")
+	require.NoError(t, e.transfer.MoveForTest(t.Context(), tr.ID, transfer.Completed))
+	require.ErrorIs(t, e.transfer.MoveForTest(t.Context(), tr.ID, transfer.Failed), transfer.ErrInvalidTransition, "COMPLETED terminal")
+	require.Len(t, e.state(t, tr.ID).Events, 4, "reddedilen geçişler olay satırı bırakmaz")
+}
+
+// Aynı anahtarla eşzamanlı dış transfer isteği: tek transfer, tek ayırma kaydı, tek gönderim işi.
+func TestExternalConcurrentSameKeyReservesOnce(t *testing.T) {
+	e, _ := newExt(t)
+	ids := make([]uuid.UUID, 15)
+	var g errgroup.Group
+	for i := range ids {
+		g.Go(func() error {
+			tr, _, err := e.transfer.Create(t.Context(), e.ops, "ext-same-key", transfer.CreateInput{
+				FromAccountID: e.from.ID, ToIBAN: account.NewIBAN(900_000_001), AmountMinor: 20_00, Currency: money.TRY})
+			ids[i] = tr.ID
+			return err
+		})
+	}
+	require.NoError(t, g.Wait())
+	for _, id := range ids {
+		require.Equal(t, ids[0], id)
+	}
+	require.Equal(t, int64(980_00), e.balance(t, e.from.ID), "para bir kez ayrıldı")
+	var jobsQueued int
+	require.NoError(t, e.env.App.QueryRow(t.Context(), `SELECT count(*) FROM jobs WHERE payload->>'transfer_id' = $1`, ids[0].String()).Scan(&jobsQueued))
+	require.Equal(t, 1, jobsQueued)
+}
