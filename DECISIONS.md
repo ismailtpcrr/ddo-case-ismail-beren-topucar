@@ -331,3 +331,27 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   özet kaydı yazılır (20.000 müşteri için 20.000 denetim satırı gürültü olurdu). IBAN'ların hesap numaraları veritabanındaki
   dizi durumuna bağlıdır: aynı tohumla *boş* bir veritabanında aynı IBAN'lar çıkar. Farklı tohum ya da müşteri sayısı için
   `make reset-demo` gerekir (mevcut seed'in üzerine yeni tohum yazılmaz; uyarı loglanır).
+
+## K-17 Arayüz: oturum, tek yenileme isteği ve Idempotency-Key'in yaşam döngüsü
+
+*(PLAN.md §8 ve §14 madde 16-17; K-07'deki sınırlamanın kapatılması; D1 adımı.)*
+
+- **Bağlam:** proje.md §2: frontend serbest, seçim README'de gerekçelendirilmeli; §5: gerçek veriyle çalışmalı, her
+  ekranda yükleniyor / boş / hata durumu, mobil genişlikte kullanılabilir. K-07: refresh token her yenilemede döner;
+  eşzamanlı iki yenileme ikinciyi çalınmış sayıp bütün oturumları kapatır.
+- **Karar:**
+  - **React + Vite + TypeScript, Mantine, TanStack Query, React Router**; nginx statik dosyaları sunar ve `/api`'yi
+    API'ye iletir (aynı köken, CORS yok). Mantine: erişilebilir, mobil uyumlu hazır bileşenler (`AppShell`, tablo, form, bildirim) →
+    az kodla tutarlı arayüz. Next.js/SSR kullanılmadı: oturum zaten API'de, sayfaların sunucuda üretilmesine gerek yok.
+  - **Oturum:** access token yalnız bellekte; refresh token HttpOnly çerezde. Sayfa yenilenince çerezle oturum geri yüklenir.
+    API'den 401 gelince bir kez yenilenip istek tekrarlanır; yenilenemezse giriş ekranına dönülür.
+  - **Tek yenileme isteği (K-07):** yenileme `refreshing` sözünde tutulur; eşzamanlı 401'ler aynı sözü bekler, ikinci istek gönderilmez.
+  - **Idempotency-Key:** form başına bir anahtar üretilir. Ağ hatası/zaman aşımı/5xx'te *aynı* anahtarla yeniden
+    gönderilir (çift transfer olmaz); kesin bir cevap (başarı ya da 4xx iş kuralı reddi) gelince bir sonraki niyet için yeni anahtar üretilir.
+  - **Para:** arayüz de tutarı tam sayı kuruş olarak taşır; girdi metninden kuruşa çevirme ve biçimleme tam sayı aritmetiğiyle
+    yapılır (kayan nokta yok), en fazla 2 ondalık basamak kabul edilir.
+  - **Menü role göre süzülür** (izin listesi `/me` ve girişten gelir); asıl yetki kontrolü sunucudadır.
+- **Değerlendirilen alternatifler:** Access token'ı `localStorage`'da saklamak (XSS ile okunabilir); her tıklamada yeni
+  Idempotency-Key üretmek (ağ hatasında yeniden denemek çift işlem riski taşır); Next.js (ek sunucu süreci, bu ürün için fayda yok).
+- **Sonuçlar / ödünleşimler:** Mantine paketi büyük (≈ 0,5 MB minify); tek sayfalık iç uygulama için kabul edildi, kod bölme
+  gerekirse yapılır. Bu adımda ekranlar: giriş, hesaplar, hesap hareketleri, transfer; operasyon/risk/uyum/denetçi ekranları K2'de.

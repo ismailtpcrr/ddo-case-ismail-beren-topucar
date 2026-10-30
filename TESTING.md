@@ -215,4 +215,21 @@ Her kimlik, ilgili özellik geliştirildiğinde bu tabloya ve `make verify`'a ek
 
 ## Arayüz senaryoları
 
-İlk arayüz adımında (D1) eklenecek.
+Sistem ayaktayken `http://localhost:3000`. Her ekranda yükleniyor / boş / hata durumu vardır; mobil genişlikte
+(≈ 390 px) menü hamburger düğmesine sığar, tablolar yatay kayar.
+
+| # | Senaryo | Beklenen sonuç |
+|---|---|---|
+| 1 | Giriş ekranında yanlış parola | "E-posta ya da parola hatalı." mesajı, oturum açılmaz |
+| 2 | `musteri@parakopru.test` / `ParaKopru.2026` ile giriş | Hesaplar ekranı: Vadesiz TRY 50.000,00 ₺, USD 2.000,00 $, EUR 2.000,00 €, Vadeli TRY 100.000,00 ₺ (IBAN, bakiye, kullanılabilir) |
+| 3 | Bir hesap kartına tıkla | Hesap ayrıntısı ve hareketler: "Açılış bakiyesi +50.000,00 ₺"; 25'ten fazla hareket varsa "Daha eski hareketler" |
+| 4 | Sayfayı yenile (F5) | Oturum çerezden (HttpOnly refresh token) geri gelir, giriş ekranına dönülmez |
+| 5 | Transferler → gönderen: Vadesiz TRY, alıcı IBAN: vadeli TRY hesabının IBAN'ı (alan kendi hesaplarını önerir), tutar `12,50` | "Transfer tamamlandı" bildirimi; Geçmiş'te "Tamamlandı" satırı; hesap bakiyeleri güncellenir |
+| 6 | Aynı formda bakiyeden büyük tutar (`999.999,00`) | Kırmızı uyarı "Hesapta yeterli kullanılabilir bakiye yok."; geçmişte "Reddedildi" satırı |
+| 7 | Gönderen TRY hesap, alıcı USD hesabın IBAN'ı | "Transfer para birimi, gönderen hesabın para birimiyle aynı olmalı." (çok para birimi G1'de) |
+| 8 | `operasyon@parakopru.test` ile giriş | Menü Hesaplar ve Transferler; tüm hesaplar (iç hesaplar dahil) "Daha fazla göster" ile sayfalanır |
+| 9 | `denetci@parakopru.test` ile Transferler | Transfer formu yok (denetçi salt okur), yalnız geçmiş |
+| 10 | Tarayıcıda ağ bağlantısını kes, bir ekranı yenile | Kırmızı hata kutusu ve "Tekrar dene" düğmesi |
+| 11 | Çıkış | Giriş ekranına dönülür; geri tuşuyla korunan ekran açılmaz |
+
+Otomatik arayüz kanıtı: `make verify` içindeki `UI` kimliği (sayfa ve nginx üzerinden API).

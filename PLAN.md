@@ -548,7 +548,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [ ] C3 `test(transfer)`: idempotency (eşzamanlı dahil), geçersiz geçiş, belirsiz sonuç ve telafi testleri + verify'a F-3, T-2
 
 ### D — İlk arayüz
-- [ ] D1 `feat(frontend)`: giriş, rol bazlı menü, hesaplarım, hareketler, transfer; ortak yükleniyor/boş/hata bileşenleri, mobil uyum
+- [x] D1 `feat(frontend)`: giriş, rol bazlı menü, hesaplarım, hareketler, transfer; ortak yükleniyor/boş/hata bileşenleri, mobil uyum
 
 ### E — Kart provizyonu (T-3, F-4)
 - [ ] E1 `feat(card)`: kartlar, provizyon, kısmi/final çekim, iade, süre aşımı işi
