@@ -26,3 +26,6 @@ dist/
 .DS_Store
 .idea/
 *.swp
+
+# make verify: PITR betiğinin sonuç dosyası
+.verify/

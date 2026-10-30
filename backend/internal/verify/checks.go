@@ -47,7 +47,7 @@ func Checks() []Check {
 		{ID: "T-4", Title: "Faiz tahakkuku", PlannedIn: "H2"},
 		{ID: "T-5", Title: "Mutabakat motoru", PlannedIn: "I3"},
 		{ID: "T-6", Title: "Gerçek zamanlı risk kuralları", PlannedIn: "J2"},
-		{ID: "T-7", Title: "Zaman yolculuğu, bütünlük, felaket kurtarma", PlannedIn: "F3"},
+		{ID: "T-7", Title: "Zaman yolculuğu, bütünlük, felaket kurtarma", Run: checkT7, Timeout: 3 * time.Minute},
 	}
 }
 

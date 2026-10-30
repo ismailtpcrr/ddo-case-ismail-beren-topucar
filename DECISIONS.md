@@ -513,3 +513,26 @@ Docker imajı zaten `golang:1.27-alpine` (güncel yama) ile derlenir. Yerelde Go
   bakiye muhasebesi karmaşıklaşır, kart provizyonuyla çakışır); onayı yalnız uygulamada kontrol etmek (doğrudan SQL ile aşılabilir).
 - **Sonuçlar / ödünleşimler:** İki büyük transfer aynı bakiyeye karşı bekleyebilir; ikincisi onayda reddedilir. Onay kuyruğu
   ekranı K2'de (şimdilik `GET /transfers?state=PENDING_APPROVAL`).
+
+## K-24 Felaket kurtarma: WAL arşivi + temel yedek ile PITR, pg_dump'tan ayrı, make verify'a bağlı
+
+*(PLAN.md §5.9, §14 madde 12; F3 adımı.)*
+
+- **Bağlam:** proje.md Görev 7: "WAL arşivi + `pg_dump` ile belirli bir ana geri dönmeyi gösteren bir betik ve README bölümü."
+- **Karar:**
+  - **Arşivleme:** `wal_level=replica`, `archive_mode=on`, `archive_command` WAL parçasını `/wal_archive` adlı volume'a kopyalar
+    (`test ! -f … && cp`: var olanı ezmez), `archive_timeout=15`: trafik azken de en geç 15 sn'de parça arşivlenir. Volume'un
+    postgres kullanıcısına ait olması için küçük bir `deploy/postgres/Dockerfile` (taban imaj `postgres:16-alpine`) klasörü
+    oluşturur; konteyner root olmadan çalışmaya devam eder.
+  - **Betik (`scripts/dr/pitr-demo.sh`):** temel yedek (`pg_basebackup -X none`: WAL arşivden gelir) + `pg_dump -Fc`; A kaydı, T
+    anı, B kaydı; ayrı konteynerde `restore_command` ve `recovery_target_time = T`; doğrulama: A var, B yok, müşteri sayısı ve
+    defter dengesi yerinde; son olarak `pg_dump`'ın T'ye dönemeyeceğinin gösterimi (dump anındaki hal).
+  - **`make verify` entegrasyonu:** betik verify'dan önce çalışır, sonucu `.verify/pitr-result.txt`'ye yazar; verify konteyneri
+    dosyayı salt okunur bağlar; **T-7 yalnız API kontrolleri ve PITR ikisi de geçerse PASS** olur (PLAN §9). Betik yoksa/başarısızsa T-7 FAIL.
+  - **Neden `pg_dump` yetmez:** mantıksal yedek dump anının anlık görüntüsüdür; "dünkü 14:03'e dön" için WAL şarttır. İkisi birlikte
+    gösterilir: `pg_dump` sürüm/şema taşıma ve seçici geri yükleme, WAL ise zamanda geri dönüş içindir.
+- **Değerlendirilen alternatifler:** WAL arşivini host dizinine bağlamak (yetki ve macOS/Linux farkları); `pg_basebackup -X stream`
+  ile yedeğe WAL gömmek (PITR için arşiv yine gerekir); betiği Go testi olarak yazmak (Docker içinden Docker; betik kullanıcıya
+  da gösterilebilir olmalı).
+- **Sonuçlar / ödünleşimler:** Arşiv sınırsız büyür (saklama/temizlik politikası RUNBOOK'ta anlatılır, otomatik silme yok). Betik tek
+  düğümlü demo içindir; gerçek ortamda arşiv ayrı bir depolamaya (nesne depolama) gider ve temel yedekler zamanlanır.

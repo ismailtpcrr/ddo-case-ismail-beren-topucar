@@ -32,13 +32,18 @@ func externalIBAN(n int64) string {
 
 // pickSimAccounts simülatör müşterilerinden (demo hesaplar hariç) bakiyesi yeterli vadesiz TRY hesapları seçer.
 func (e *Env) pickSimAccounts(ctx context.Context, ops, demo *Session, n int) ([]acct, error) {
+	return e.pickSimAccountsMin(ctx, ops, demo, n, 10_000_00)
+}
+
+// pickSimAccountsMin pickSimAccounts ile aynıdır; en az minBalance bakiyeli hesapları seçer.
+func (e *Env) pickSimAccountsMin(ctx context.Context, ops, demo *Session, n int, minBalance int64) ([]acct, error) {
 	demoIDs := map[string]bool{}
 	if err := e.accountsPage(ctx, "/api/v1/accounts", demo.AccessToken, func(a acct) bool { demoIDs[a.ID] = true; return false }); err != nil {
 		return nil, err
 	}
 	var out []acct
 	err := e.accountsPage(ctx, "/api/v1/accounts", ops.AccessToken, func(a acct) bool {
-		if a.CustomerID != nil && a.Kind == "CHECKING" && a.Currency == "TRY" && a.BalanceMinor >= 10_000_00 && !demoIDs[a.ID] {
+		if a.CustomerID != nil && a.Kind == "CHECKING" && a.Currency == "TRY" && a.BalanceMinor >= minBalance && !demoIDs[a.ID] {
 			out = append(out, a)
 		}
 		return len(out) == n

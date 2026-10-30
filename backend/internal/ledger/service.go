@@ -148,6 +148,16 @@ func (s *Service) Reverse(ctx context.Context, tx db.DBTX, id EntryID, in Revers
 	if orig.Kind == KindReversal {
 		return uuid.Nil, ErrReversalOfReversal
 	}
+	// Önce kayıttaki hesapların özetleri (sıralı) kilitlenir, "zaten ters çevrilmiş mi" ondan sonra bakılır: eşzamanlı iki ters
+	// çevirmede kaybeden, kazananın commit'ini kilitte bekler ve sonra bunu görür; yoksa bakiye kontrolüne takılıp yanlış
+	// hata (INSUFFICIENT_FUNDS) alırdı.
+	accountIDs := make([]uuid.UUID, len(orig.Postings))
+	for i, p := range orig.Postings {
+		accountIDs[i] = p.AccountID
+	}
+	if err := s.LockAccounts(ctx, tx, accountIDs...); err != nil {
+		return uuid.Nil, err
+	}
 	reversed, err := isReversed(ctx, tx, id)
 	if err != nil {
 		return uuid.Nil, err

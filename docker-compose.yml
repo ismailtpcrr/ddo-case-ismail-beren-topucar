@@ -14,8 +14,21 @@ name: parakopru
 
 services:
   postgres:
-    image: postgres:16-alpine
+    build: ./deploy/postgres
+    image: parakopru-postgres:local
     user: postgres
+    # WAL arşivi (T-7): her tamamlanan WAL parçası /wal_archive'a kopyalanır; temel yedek (pg_basebackup) ile birlikte
+    # belirli bir ana geri dönmeyi (PITR) sağlar. archive_timeout: trafik azken de en geç 15 sn'de parça arşivlenir.
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=15
+      - -c
+      - archive_command=test ! -f /wal_archive/%f && cp %p /wal_archive/%f
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?.env eksik - once 'cp .env.example .env' calistirin}
       POSTGRES_USER: ${POSTGRES_USER:?.env eksik}
@@ -25,6 +38,7 @@ services:
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?.env eksik}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - walarchive:/wal_archive
       - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
@@ -139,6 +153,10 @@ services:
       VERIFY_FRONTEND_URL: http://frontend:8080
       DEMO_PASSWORD: ${DEMO_PASSWORD:?.env eksik}
       VERIFY_MIN_CUSTOMERS: ${SIM_CUSTOMERS:-20000}
+      VERIFY_PITR_RESULT: /verify-out/pitr-result.txt
+    volumes:
+      # scripts/dr/pitr-demo.sh sonucunu buraya yazar (make verify önce onu çalıştırır); T-7 ikisi de geçerse PASS olur.
+      - ./.verify:/verify-out:ro
     depends_on:
       api:
         condition: service_healthy
@@ -157,3 +175,4 @@ services:
 
 volumes:
   pgdata:
+  walarchive:

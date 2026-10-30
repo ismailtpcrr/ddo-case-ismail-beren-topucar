@@ -34,7 +34,8 @@ bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır.
 | `T-2` | Aynı Idempotency-Key ile 20 eşzamanlı istek; farklı gövde; anahtarsız; 100 eşzamanlı dış transfer (%20 hata, %10 çift cevap); çift ve çelişkili banka bildirimi | Tek transfer, bakiye bir kez düşer, diğerleri `Idempotent-Replayed`; `422 IDEMPOTENCY_KEY_REUSED`, `400 IDEMPOTENCY_KEY_REQUIRED`; 100 transferin hepsi `COMPLETED` ya da `REVERSED` (tipik 88-92 tamamlanır, 8-12 telafi edilir); `EXTERNAL_CLEARING` değişmez, `NOSTRO` tamamlananlar kadar azalır; çelişkili bildirim transferi ve parayı değiştirmez, tutar uyuşmazlığı `422`. Tipik süre 14-17 sn |
 | `F-4` | Demo kartıyla provizyon → kısmi çekim → aşırı çekim → final çekim → iade; süre aşımı (3 sn ömürlü provizyon); yetki ve yetersiz bakiye | Her adımda bakiye/bloke/kullanılabilir tam beklenen değerde; final çekimde kalan blok serbest (`CAPTURED`); `422 CAPTURE_EXCEEDS_HOLD`, `409 HOLD_NOT_ACTIVE`, `422 REFUND_EXCEEDS_CAPTURE`; süresi dolan provizyonu worker serbest bırakır (`EXPIRED`); müşteri provizyon açamaz `403`; yetersiz bakiye `422`. Tipik süre 8 sn |
 | `T-3` | Simülatör müşterisinin kartında HTTP üzerinden yarışlar: 60 eşzamanlı provizyon; her provizyonda 3 yarışan çekim; her çekimde 3 yarışan iade | Provizyonlardan tam `⌊kullanılabilir / tutar⌋` kadarı geçer (20); her provizyonda yalnız 1 çekim, her çekimde yalnız 1 iade geçer; bakiye = açılış − çekim + iade, `held` = Σ aktif kalan, kullanılabilir ≥ 0; `/admin/invariants` ok |
-| `F-5` … `F-8`, `T-4` … `T-7` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
+| `T-7` | Geriye tarihli düzeltme (sim hesabın açılış kaydı, `effective_at` = kendi zamanı) ve `as_of`/`known_at`; ikinci ters kayıt; müşteri geçmişe bakmayı dener; dört göz (10.000,00 ve 10.000,01 TL, kendi isteğini onaylama, yetkisiz roller, çift onay, ret); **PITR betiğinin sonucu** | `as_of=E` güncel bilgiyle 0, `known_at=kayıt anı` ile eski bakiye; özgün satır silinmez (düzeltmeden önceki bilgiyle 1, şimdi 2 hareket); `409 ALREADY_REVERSED`; müşteri `403`; 10.000,00 TL onaysız, 10.000,01 TL `PENDING_APPROVAL` → isteyen `403 FOUR_EYES_VIOLATION`, sistem/müşteri `403`, uyum onayı `COMPLETED`, ikinci onay `409`, ret parayı oynatmaz; PITR `PASS`. `make verify` önce `scripts/dr/pitr-demo.sh`'i çalıştırır; T-7 ikisi de geçerse PASS |
+| `F-5` … `F-8`, `T-4` … `T-6` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
 
 Yerelde (compose dışında) çalıştırmak için:
 
@@ -183,6 +184,24 @@ Durum: GitHub'da **Actions** sekmesi ya da `gh run list`.
 | Sürece ait kayıt elle ters çevrilemez | `go test -run TestReverseByRequest ./internal/ledger/` | Transfer kaydı gibi bir sürecin kaydı `422 ENTRY_NOT_REVERSIBLE` |
 | Ters kayıt yetkisi | Müşteri, risk, uyum ya da denetçi token'ıyla ters kayıt | `403 FORBIDDEN` (yalnız operasyon) |
 | Defterin tamamı dengede | `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT currency, sum(amount_minor) FROM postings GROUP BY 1"'` | Her para biriminde `0` |
+
+## Felaket kurtarma (T-7): WAL arşivi + temel yedek + `pg_dump`, PITR
+
+```bash
+make pitr-demo          # = sistemi ayağa kaldırır + ./scripts/dr/pitr-demo.sh (≈ 11 sn)
+```
+
+| Adım | Ne olur | Beklenen çıktı |
+|---|---|---|
+| 1 | `pg_basebackup` (temel yedek) + `pg_dump -Fc` (mantıksal yedek) | `NOTICE: all required WAL segments have been archived` |
+| 2 | `dr_demo` tablosuna işaret kaydı **A**, zaman **T**, sonra "hatalı" kayıt **B** | `T = 2026-… +00 ; müşteri sayısı = 20001` |
+| 3 | WAL parçası `/wal_archive` volume'una arşivlenir (`archive_mode=on`, `archive_timeout=15`) | `arşivlendi: 0000000100000000000000NN` |
+| 4 | **Ayrı** konteynerde temel yedek açılır, `restore_command` + `recovery_target_time = T` ile WAL ileri sarılır, `promote` | geri yükleme biter |
+| 5 | Doğrulama | `✓ A var, B yok`; `✓ uygulama verisi yerinde: 20001 müşteri; defterde her para biriminde borç = alacak` |
+| 6 | Karşılaştırma | `✓ pg_dump yedeği dump anındaki hali verir (A'dan önce): dr_demo yok; yalnız WAL ile T anına dönülebilir` |
+
+Son satır `PASS PITR: …`; çıkış kodu 0. Sonuç `.verify/pitr-result.txt` dosyasına da yazılır (`make verify` T-7 için okur). Betik canlı
+veritabanına yalnız geçici `dr_demo` tablosunu ekler ve siler. Arşivin durumu: `docker compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT * FROM pg_stat_archiver"`.
 
 ## Dört göz onayı (T-7)
 

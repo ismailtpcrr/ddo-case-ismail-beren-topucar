@@ -9,7 +9,7 @@ BACKEND := backend
 GOLANGCI_LINT_VERSION := v2.15.0
 
 .DEFAULT_GOAL := help
-.PHONY: help env up down logs ps reset-demo verify test test-race cover lint fmt
+.PHONY: help env up down logs ps reset-demo verify pitr-demo test test-race cover lint fmt
 
 help: ## Hedefleri listele
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | \
@@ -38,8 +38,16 @@ reset-demo: env ## Tüm verileri sil ve sistemi ilk seed haliyle yeniden başlat
 
 ## --- Doğrulama --------------------------------------------------------------
 
-verify: env ## Ayaktaki sistemde her özelliği uçtan uca dene; PASS/FAIL tablosu (sistem kapalıysa başlatır)
+verify: env ## Ayaktaki sistemde her özelliği uçtan uca dene; PASS/FAIL tablosu (önce PITR betiği çalışır: T-7)
+	@mkdir -p .verify
+	$(COMPOSE) up --detach --wait
+	-@./scripts/dr/pitr-demo.sh || true
 	$(COMPOSE) --profile verify run --rm --build verify
+
+pitr-demo: env ## Felaket kurtarma gösterimi: temel yedek + WAL arşivi ile belirli bir ana geri dön (T-7)
+	@mkdir -p .verify
+	$(COMPOSE) up --detach --wait
+	./scripts/dr/pitr-demo.sh
 
 ## --- Geliştirme ------------------------------------------------------------
 
