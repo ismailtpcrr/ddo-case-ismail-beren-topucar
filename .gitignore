@@ -1,0 +1,27 @@
+# Şartname dosyası teslimin parçası değil
+proje.md
+
+# Ortam ve gizli değerler
+.env
+*.pem
+
+# Go
+/bin/
+*.test
+*.out
+coverage.*
+
+# Frontend
+node_modules/
+dist/
+.vite/
+
+# Yerel veriler (yedek, WAL arşivi, üretilen ekstreler)
+/backups/
+/wal-archive/
+/data/
+
+# Editör / işletim sistemi
+.DS_Store
+.idea/
+*.swp
