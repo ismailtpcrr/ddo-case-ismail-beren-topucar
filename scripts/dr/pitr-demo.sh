@@ -22,7 +22,8 @@ ARCHIVE_DIR="/wal_archive/pitr/$RUN"
 VOLUME="${RUN}_data"
 IMAGE="parakopru-postgres:local"
 RESTORE="parakopru-pitr"
-ARCHIVE_VOLUME="parakopru_walarchive"
+# Compose proje adı COMPOSE_PROJECT_NAME ile değiştirilmişse (ör. ikinci bir kopya) volume adı da ona uyar.
+ARCHIVE_VOLUME="${COMPOSE_PROJECT_NAME:-parakopru}_walarchive"
 
 primary() { docker compose exec -T postgres "$@"; }
 sql()     { primary psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -At -c "$1"; }

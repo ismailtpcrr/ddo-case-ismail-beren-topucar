@@ -186,6 +186,7 @@ açılış − giden + gelen; toplam değişmedi; `/admin/invariants` ok. Ek ola
 | k6 yük testi ve SLO tablosu | ❌ yapılmadı | L3 |
 | Kaos senaryoları (≥ 2 betik) | ❌ yapılmadı | L4; PITR betiği felaket kurtarma içindir, kaos senaryosu değildir |
 | Kapsam ≥ %75 (domain paketleri) | ✅ | ölçüldü (`go test -cover`): money %92, fx %88, customer %87, account %82, interest %82, transfer %79, card %78, ledger %77. Simülatör paketi (`sim`, veri üretici) %72: domain değil, bu eşiğin altında |
+| Temiz klondan kurulum | ✅ | repo GitHub'dan yeni klonlandı, `cp .env.example .env && docker compose up --build`: 5 servis healthy (26 sn, Docker önbelleği sıcakken), klonda `make verify` 17 PASS / 4 FAIL (yalnız yapılmayan kimlikler) |
 | Soğuk başlangıç ≤ 5 dk ölçümü | ❌ yapılmadı | `docker builder prune` ile boş önbellekten kurulum süresi ölçülmedi |
 | Bonus (PDF ekstre, canlı hacim, revaluation) | ❌ | N1–N3 zorunlu değil, yapılmadı |
 
