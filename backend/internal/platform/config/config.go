@@ -93,6 +93,9 @@ type Verify struct {
 	FrontendURL  string        `env:"VERIFY_FRONTEND_URL" envDefault:"http://frontend:8080"`
 	DemoPassword string        `env:"DEMO_PASSWORD,required,notEmpty"`
 	Timeout      time.Duration `env:"VERIFY_TIMEOUT"      envDefault:"14m"` // şartname: en fazla 15 dk
+	// Simülatörün seed ettiği en az müşteri sayısı (F-1 kontrolü) ve T-1'de gönderilecek eşzamanlı transfer sayısı.
+	MinCustomers int `env:"VERIFY_MIN_CUSTOMERS" envDefault:"20000"`
+	T1Transfers  int `env:"VERIFY_T1_TRANSFERS"  envDefault:"10000"`
 }
 
 // validator, Load'un okuduktan sonra çağırdığı isteğe bağlı kontrol arayüzüdür.
@@ -119,4 +122,28 @@ func parse[T any](opts env.Options) (T, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// Simulator, veri üretici (simülatör) sürecinin ayarlarıdır.
+type Simulator struct {
+	HTTPAddr string     `env:"HTTP_ADDR" envDefault:":8080"` // yalnız sağlık ucu; compose'da dışarı açılmaz
+	LogLevel slog.Level `env:"LOG_LEVEL" envDefault:"info"`
+
+	DatabaseURL string `env:"DATABASE_URL,required,notEmpty"`
+	DBMaxConns  int32  `env:"DB_MAX_CONNS" envDefault:"4"`
+
+	// Aynı tohum aynı veriyi üretir (proje.md §8).
+	Seed      int64 `env:"SIM_SEED"      envDefault:"20261026"`
+	Customers int   `env:"SIM_CUSTOMERS" envDefault:"20000"`
+}
+
+// Validate etiketlerle ifade edilemeyen kuralları kontrol eder.
+func (c Simulator) Validate() error {
+	switch {
+	case c.DBMaxConns < 1:
+		return errors.New("DB_MAX_CONNS must be at least 1")
+	case c.Customers < 0 || c.Customers > 1_000_000:
+		return errors.New("SIM_CUSTOMERS must be between 0 and 1000000")
+	}
+	return nil
 }

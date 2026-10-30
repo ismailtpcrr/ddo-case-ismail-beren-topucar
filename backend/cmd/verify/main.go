@@ -36,6 +36,7 @@ func run() int {
 	fmt.Printf("ParaKöprü doğrulaması — API: %s, arayüz: %s\n\n", cfg.APIURL, cfg.FrontendURL)
 	start := time.Now()
 	env := verify.NewEnv(cfg.APIURL, cfg.FrontendURL, cfg.DemoPassword)
+	env.MinCustomers, env.T1Transfers = cfg.MinCustomers, cfg.T1Transfers
 	results := verify.RunAll(ctx, env, verify.Checks(), os.Stdout)
 
 	fmt.Println()

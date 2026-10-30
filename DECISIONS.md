@@ -302,3 +302,32 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
 - **Değerlendirilen alternatifler:** Havuzu büyütmek (sorunu ertelemek, eşzamanlılık havuzdan büyükse yine kilitlenir);
   transaction'dan önce hesabı okumak (okuma ile yazma arasında hesap değişebilir ve iki kontrol ayrışır).
 - **Sonuçlar:** Kural: transaction başlatan servis, çağırdığı her şeye `tx`'i geçirir. Yük testi (L3) bu sınıf hataya karşı da koruma sağlar.
+
+## K-16 Simülatör seed'i: tek transaction, COPY, deterministik UUIDv7
+
+*(PLAN.md §6 "Seed (iki parça)"; B6 adımı.)*
+
+- **Bağlam:** proje.md §8: 20.000 müşteri, aynı tohumla aynı veri, ayrı compose servisi; PLAN.md §6: `COPY` ile toplu,
+  açılış bakiyeleri defterden geçer, aynı tohumla yapılmışsa atlanır. 20.000 müşteri ≈ 32.000 hesap ve 64.000 defter satırı demektir.
+- **Karar:**
+  - **Üretim saf bir fonksiyondur** (`sim.Generate`): tohumdan müşteri, hesap, açılış bakiyesi ve **kimlikler** üretir.
+    UUID'ler UUIDv7 biçiminde ve tohumlu (zaman alanı sabit bir tarihten başlayıp artar, kalan bitler tohumdan) →
+    aynı tohum birebir aynı veri, kimlikler dizin dostu sırada.
+  - **Yazma:** tek transaction, `pg_advisory_xact_lock` ile (iki simülatör aynı anda seed etmez), `COPY` ile
+    `customers`, `accounts`, `account_balances`, `journal_entries`, `postings`. Defterin trigger'ları COPY'de de çalışır:
+    borç = alacak commit'te veritabanınca da doğrulanır. `OPENING_EQUITY` özeti toplam kadar düşürülür. Bir kez
+    başarısı `seed_runs` tablosuna yazılır; sonraki açılışlar atlar. Yarıda kalırsa her şey geri alınır.
+  - **IBAN'lar** `account_number_seq` dizisinden (demo hesaplarla çakışmaz). Kimlik numaraları "5" ile başlar: demo
+    müşterinin "10000000146" numarasıyla ve verify'ın ürettiği "9…" numaralarla çakışmaz; 7919 ile çarpma (10¹⁰ ile aralarında
+    asal) çarpışmasız bir eşleme verir.
+  - **Servis:** `/health` seed bitene kadar 503; compose'da `verify` simülatör `healthy` olmadan başlamaz.
+  - **verify:** F-1, F-2, T-1 simülatör verisine dayanır (T-1 simülatör müşterilerinden 40 hesap seçer); AUTH-4'e
+    nesne düzeyi ihlal (başka müşterinin hesabı 403) eklendi.
+- **Değerlendirilen alternatifler:**
+  - Servis katmanıyla (`OpenTx` + `Post`) 20.000 müşteri yazmak: hesap başına yaklaşık 15 sorgu ≈ yarım milyon gidiş-dönüş, dakikalar sürer.
+  - Seed'i api açılışına koymak: api'nin sağlıklı olma süresi uzar; şartname simülatörün ayrı servis olmasını istiyor.
+  - Rastgele `uuid.NewV7()`: aynı tohum aynı kimlikleri vermez, "aynı veri" kanıtlanamaz.
+- **Sonuçlar / ödünleşimler:** Seed ≈ 3-4 sn. Simülatör verisi için ayrı denetim satırı yok, yalnız bir `simulator.seed`
+  özet kaydı yazılır (20.000 müşteri için 20.000 denetim satırı gürültü olurdu). IBAN'ların hesap numaraları veritabanındaki
+  dizi durumuna bağlıdır: aynı tohumla *boş* bir veritabanında aynı IBAN'lar çıkar. Farklı tohum ya da müşteri sayısı için
+  `make reset-demo` gerekir (mevcut seed'in üzerine yeni tohum yazılmaz; uyarı loglanır).

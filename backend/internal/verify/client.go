@@ -16,14 +16,17 @@ type Env struct {
 	APIURL       string // ör. http://api:8080
 	FrontendURL  string // ör. http://frontend:8080
 	DemoPassword string
+	MinCustomers int // F-1: simülatörün seed ettiği en az müşteri sayısı
+	T1Transfers  int // T-1: eşzamanlı gönderilecek transfer sayısı
 	http         *http.Client
 }
 
 // NewEnv yeni bir ortam oluşturur.
 func NewEnv(apiURL, frontendURL, demoPassword string) *Env {
 	return &Env{
-		APIURL: apiURL, FrontendURL: frontendURL, DemoPassword: demoPassword,
-		http: &http.Client{Timeout: 30 * time.Second},
+		APIURL: apiURL, FrontendURL: frontendURL, DemoPassword: demoPassword, MinCustomers: 20000, T1Transfers: 10000,
+		// T-1 yüzlerce eşzamanlı istek gönderir: bağlantılar yeniden kullanılsın.
+		http: &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{MaxIdleConns: 256, MaxIdleConnsPerHost: 256, IdleConnTimeout: 30 * time.Second}},
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // demoAccounts her rol için demo hesaptır (auth.DemoUsers ile aynı; verify sistemi dışarıdan, API üzerinden dener).
@@ -31,8 +32,8 @@ func Checks() []Check {
 		{ID: "AUTH-4", Title: "Yetki ihlali denemeleri reddedilir (401)", Run: checkViolations},
 		{ID: "UI", Title: "Arayüz ve arayüz üzerinden API", Run: checkFrontend},
 
-		{ID: "F-1", Title: "Müşteri ve hesap yönetimi", PlannedIn: "B6"},
-		{ID: "F-2", Title: "Çift taraflı defter ve bakiye sorguları", PlannedIn: "B6"},
+		{ID: "F-1", Title: "Müşteri ve hesap yönetimi", Run: checkF1, Timeout: 3 * time.Minute},
+		{ID: "F-2", Title: "Çift taraflı defter ve bakiye sorguları", Run: checkF2},
 		{ID: "F-3", Title: "Havale/EFT/FAST transferleri", PlannedIn: "C3"},
 		{ID: "F-4", Title: "Kart provizyon, çekim, iade", PlannedIn: "E2"},
 		{ID: "F-5", Title: "Kur yönetimi ve çok para birimi", PlannedIn: "G1"},
@@ -40,7 +41,7 @@ func Checks() []Check {
 		{ID: "F-7", Title: "Risk kuralları ve inceleme kuyruğu", PlannedIn: "J2"},
 		{ID: "F-8", Title: "Gün sonu, mutabakat, müşteri ekstresi", PlannedIn: "I3"},
 
-		{ID: "T-1", Title: "Çift taraflı defter ve para korunumu", PlannedIn: "B6"},
+		{ID: "T-1", Title: "Çift taraflı defter ve para korunumu", Run: checkT1, Timeout: 10 * time.Minute},
 		{ID: "T-2", Title: "İdempotent transfer ve saga", PlannedIn: "C3"},
 		{ID: "T-3", Title: "Provizyon ve kullanılabilir bakiye", PlannedIn: "E2"},
 		{ID: "T-4", Title: "Faiz tahakkuku", PlannedIn: "H2"},
@@ -180,6 +181,11 @@ func checkViolations(ctx context.Context, env *Env) (string, error) {
 		}
 	}
 
+	// Nesne düzeyi ihlal: müşteri, başka bir müşterinin hesabını ve hareketlerini okuyamaz (403).
+	if err := checkObjectLevel(ctx, env, customer); err != nil {
+		return "", err
+	}
+
 	// Çıkıştan sonra aynı oturum yenilenemez.
 	if _, err := env.Do(ctx, Request{Method: http.MethodPost, URL: env.APIURL + "/api/v1/auth/logout", Session: customer}); err != nil {
 		return "", err
@@ -195,7 +201,7 @@ func checkViolations(ctx context.Context, env *Env) (string, error) {
 	if err := expectStatus("çıkıştan sonra yenileme", resp, http.StatusUnauthorized, "SESSION_EXPIRED"); err != nil {
 		return "", err
 	}
-	return "token'sız, uydurma, rolü değiştirilmiş ve refresh token'la erişim 401; çıkış sonrası yenileme 401", nil
+	return "token'sız, uydurma, rolü değiştirilmiş ve refresh token'la erişim 401; müşteri başkasının hesabını okuyamaz 403; çıkış sonrası yenileme 401", nil
 }
 
 // Arayüz yanıt veriyor ve arayüzün kökeninden (nginx) API'ye ulaşılabiliyor mu?
@@ -259,4 +265,38 @@ func cookieValue(s *Session, rawURL, name string) string {
 		}
 	}
 	return ""
+}
+
+// checkObjectLevel müşteri token'ıyla başka bir müşterinin hesabını ve hareketlerini ister; ikisi de 403 olmalı.
+func checkObjectLevel(ctx context.Context, env *Env, customer *Session) error {
+	ops, err := env.Login(ctx, "operasyon@parakopru.test")
+	if err != nil {
+		return err
+	}
+	own := map[string]bool{}
+	if err := env.accountsPage(ctx, "/api/v1/accounts", customer.AccessToken, func(a acct) bool { own[a.ID] = true; return false }); err != nil {
+		return err
+	}
+	var other string
+	if err := env.accountsPage(ctx, "/api/v1/accounts", ops.AccessToken, func(a acct) bool {
+		if a.CustomerID != nil && !own[a.ID] {
+			other = a.ID
+		}
+		return other != ""
+	}); err != nil {
+		return err
+	}
+	if other == "" {
+		return errors.New("başka bir müşterinin hesabı bulunamadı (simülatör verisi yok mu?)")
+	}
+	for _, path := range []string{"/api/v1/accounts/" + other, "/api/v1/accounts/" + other + "/entries"} {
+		resp, err := env.API(ctx, http.MethodGet, path, customer.AccessToken, nil)
+		if err != nil {
+			return err
+		}
+		if err := expectStatus("müşteri başkasının hesabı "+path, resp, http.StatusForbidden, "FORBIDDEN"); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -16,7 +16,7 @@ make verify          # = docker compose --profile verify run --rm --build verify
 ```
 
 Sistem kapalıysa önce onu başlatır, sonra compose ağı içinden gerçek HTTP istekleriyle her doğrulama kimliğini dener ve
-bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır. Şu anki süre yaklaşık 20 sn (sınır: 15 dk).
+bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır. Şu anki süre yaklaşık 5-10 sn (sınır: 15 dk).
 
 | Kimlik | Ne denenir | PASS koşulu |
 |---|---|---|
@@ -26,7 +26,11 @@ bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır.
 | `AUTH-3` | Her rolle `GET /api/v1/audit-log` (yetkisiz rol) | Uyum ve denetçi `200`; müşteri, operasyon, risk, sistem `403 FORBIDDEN` |
 | `AUTH-4` | Yetki ihlali: token'sız istek; uydurma token; rolü `AUDITOR` yapılmış müşteri token'ı (imza bozuk); refresh token'ı access yerine kullanmak; çıkıştan sonra eski token'la oturum yenileme | Hepsi `401` |
 | `UI` | Arayüz sayfası; arayüz kökeninden (nginx) `GET /api/v1/me` | Sayfa `200` ve ParaKöprü başlığı; nginx üzerinden API `200` |
-| `F-1` … `F-8`, `T-1` … `T-7` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
+| `AUTH-4` (ek) | Müşteri token'ıyla başka bir müşterinin hesabı ve hareketleri | `403 FORBIDDEN` (nesne düzeyi yetki) |
+| `F-1` | Müşteri ve 3 hesap aç (vadesiz TRY/USD, vadeli EUR); kurallar; tekrar kimlik; müşteri hesap açmayı dener; simülatör verisi | `201`, IBAN'lı hesaplar; vade/para birimi kuralı ihlali `400`; aynı kimlik `409`; müşteri `403`; keyset sayfalamayla ≥ 20.000 müşteri |
+| `F-2` | Demo hesaptan yeni hesaba 123,45 TL havale; bakiye, hareket ve kayıt sorguları | İki bakiye tam tutar kadar değişir; hareketlerin toplamı bakiyeye eşit; kayıtta borç = alacak; yetersiz bakiye `422`; transfer kaydı elle ters çevrilemez `422`; `/admin/invariants` ok |
+| `T-1` | Simülatör müşterilerinden 40 hesap arasında 10.000 eşzamanlı transfer (48 işçi, HTTP) | Her transfer 201 ya da 422 `INSUFFICIENT_FUNDS`; her hesapta bakiye = başlangıç − giden + gelen; 40 hesabın toplamı değişmez; `/admin/invariants` önce ve sonra ok. Tipik süre ≈ 4-5 sn |
+| `F-3` … `F-8`, `T-2` … `T-7` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
 
 Yerelde (compose dışında) çalıştırmak için:
 
@@ -193,6 +197,17 @@ conservation_test.go:127: 10000 transfer, 64 eşzamanlı işçi: 9115 tamamland�
 conservation_test.go:143: [rapid] OK, passed 100 tests (4.521866208s)
 --- PASS: TestPropertyRandomTransferSequencesConserveMoney (4.54s)
 ```
+
+## Simülatör ve seed
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Servis hazır | `docker compose ps simulator`; `docker compose logs simulator` | `healthy` (seed bitince); `simulator ready … "seed_skipped":false` (≈ 3-4 sn, 20.000 müşteri) |
+| Aynı tohumla tekrar atlanır | `docker compose restart simulator`, sonra logu izle | `"seed_skipped":true`, veri değişmez (`seed_runs` tablosunda kayıt var) |
+| Seed sonrası defter dengede | Operasyon token'ıyla `GET /api/v1/admin/invariants` | `ok:true`; açılış bakiyeleri defterden geçtiği için her para biriminde Σ = 0 |
+| Aynı tohum = aynı veri | `cd backend && go test -run 'TestGenerateIsDeterministic|TestGenerateIdentifiersAreUniqueAndAvoidDemo' -v ./internal/sim/` | Aynı tohumla birebir aynı müşteri/hesap/UUID; kimlik numaraları benzersiz, demo müşterinin numarasıyla çakışmaz |
+| Toplu yazma doğru | `go test -run TestSeedWritesBalancedLedgerAndIsIdempotent -v ./internal/sim/` | Kayıtlar yazılır, değişmezler ok, OPENING_EQUITY eksi toplam, ikinci çalıştırma atlanır |
+| Tohumu değiştirme | `.env` içinde `SIM_SEED`/`SIM_CUSTOMERS` değiştirip `make reset-demo` | Farklı tohum farklı veri; boyut `SIM_CUSTOMERS` ile ayarlanır |
 
 ## Doğrulama kimlikleri (F-1 … F-8, T-1 … T-7)
 

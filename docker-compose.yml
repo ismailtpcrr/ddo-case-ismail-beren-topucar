@@ -80,6 +80,28 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Veri üretici (proje.md §8): açılışta tohumlu 20.000 müşteri ve hesaplarını toplu yazar (açılış bakiyeleri defterden
+  # geçer); aynı tohumla yapılmışsa atlar. Seed bitince healthy olur; verify ancak o zaman başlar.
+  simulator:
+    build: ./backend
+    image: parakopru-backend:local
+    command: ["/app/simulator"]
+    environment:
+      DATABASE_URL: postgres://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SIM_SEED: ${SIM_SEED:-20261026}
+      SIM_CUSTOMERS: ${SIM_CUSTOMERS:-20000}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/healthcheck", "http://localhost:8080/health"]
+      interval: 3s
+      timeout: 4s
+      retries: 40
+      start_period: 10s
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     image: parakopru-frontend:local
@@ -108,8 +130,11 @@ services:
       VERIFY_API_URL: http://api:8080
       VERIFY_FRONTEND_URL: http://frontend:8080
       DEMO_PASSWORD: ${DEMO_PASSWORD:?.env eksik}
+      VERIFY_MIN_CUSTOMERS: ${SIM_CUSTOMERS:-20000}
     depends_on:
       api:
+        condition: service_healthy
+      simulator:
         condition: service_healthy
       worker:
         condition: service_healthy

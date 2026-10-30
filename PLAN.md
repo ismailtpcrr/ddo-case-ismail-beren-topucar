@@ -540,7 +540,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [x] B3 `feat(ledger)`: yevmiye + satırlar, borç = alacak (Go + DB), değişmezlik trigger'ları, özet güncelleme, sıralı kilit, ters kayıt
 - [x] B4 `feat(transfer)`: iç transfer + Idempotency-Key, `/admin/invariants`
 - [x] B5 `test(ledger)`: 10.000 eşzamanlı transfer para korunumu testi + property test
-- [ ] B6 `feat(sim)`: `simulator` servisi + tohumlu seed (20.000 müşteri, açılış bakiyeleri defterden) + verify'a F-1, F-2, T-1 kontrolleri
+- [x] B6 `feat(sim)`: `simulator` servisi + tohumlu seed (20.000 müşteri, açılış bakiyeleri defterden) + verify'a F-1, F-2, T-1 kontrolleri
 
 ### C — Dış transfer ve saga (T-2, F-3)
 - [ ] C1 `feat(sim)`: simülatöre dış banka (gecikme, zaman aşımı, %20 hata, %10 çift cevap, belirsiz sonuç, sorgulama)
