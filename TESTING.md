@@ -7,7 +7,7 @@ Bu dosya proje.md §10'un istediği bölümleri içerir:
 - (c) arayüzde elle denenecek senaryolar
 - her zorlu görev için kanıt komutu
 
-Bölümler, ilgili özellik geliştirildikçe doldurulur.
+Yapılmayan kimlikler (F-7, F-8, T-5, T-6) aşağıda ve README'de açıkça "yapılmadı" diye işaretlidir; tablolardaki her komut çalışan özellikler içindir.
 
 ## Hızlı doğrulama: `make verify`
 
@@ -16,7 +16,7 @@ make verify          # = docker compose --profile verify run --rm --build verify
 ```
 
 Sistem kapalıysa önce onu başlatır, sonra compose ağı içinden gerçek HTTP istekleriyle her doğrulama kimliğini dener ve
-bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır. Şu anki süre yaklaşık 5-10 sn (sınır: 15 dk).
+bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır. Şu anki süre yaklaşık 45 sn (sınır: 15 dk); önce `scripts/dr/pitr-demo.sh` çalışır (T-7).
 
 | Kimlik | Ne denenir | PASS koşulu |
 |---|---|---|
@@ -38,7 +38,7 @@ bir tablo basar. Bir kimlik bile FAIL ise çıkış kodu sıfırdan farklıdır.
 | `F-5` | Kur ekle/oku; çok para birimli transfer (demo TRY → USD); kur değişimi; dört göz eşiği döviz transferinde | Müşteri kur giremez `403`, geçersiz kur `400`; 1.000,00 TL @ 41,125 → **2432 USD sent** (banker's rounding) tek, 4 satırlı, her para biriminde dengeli kayıtla; `fx_rate` ve `to_amount_minor` kayıtta; yeni kur eklenince eski transfer ve `as_of` kuru değişmez; 300 USD (TL karşılığı > 10.000) `PENDING_APPROVAL`, 100 USD değil |
 | `F-6` | Müşteri gün sonu başlatmayı dener; ileri tarih; operasyon bugünün gün sonunu başlatır ve bitmesini bekler; demo vadeli hesabın faiz kaydı | `403`; `422 FUTURE_BUSINESS_DATE`; `DONE`, ~4.000 vadeli hesap tahakkuk eder, her para biriminde brüt = net + stopaj; demo vadeli TRY (100.000 TL, %42 bileşik): brüt 11507 kuruş → net 9781 + %15 stopaj 1726, tek dengeli kayıt (borç faiz gideri / alacak müşteri + stopaj) |
 | `T-4` | Aynı günü ikinci kez başlat; sıra dışı geçmiş gün | İkincisi `200` (yeni çalıştırma yok), hesap sayısı ve tutarlar birebir aynı; `409 EOD_OUT_OF_ORDER`. Çökme/devam, gün tabanı, oran değişimi ve kuruş dağıtımı: `go test ./internal/interest/` |
-| `F-7`, `F-8`, `T-5`, `T-6` | Her özellik ve zorlu görev | İlgili özellik yazıldıkça eklenir. Henüz yazılmamış kimlik **FAIL ("henüz uygulanmadı")** görünür; tablo sistemin gerçek durumunu gösterir |
+| `F-7`, `F-8`, `T-5`, `T-6` | Risk kuralları ve inceleme kuyruğu; gün sonu mutabakatı ve müşteri ekstresi; mutabakat motoru; gerçek zamanlı risk | **Yapılmadı** (zaman yetmedi). Kimlikler tabloda **FAIL ("henüz uygulanmadı")** görünür: uygulanmamış kimlik yeşil gösterilmez (DECISIONS.md K-10). Bu yüzden `make verify` bilinçli olarak sıfırdan farklı çıkış kodu verir |
 
 Yerelde (compose dışında) çalıştırmak için:
 
@@ -373,9 +373,22 @@ Ayarlar `.env`: `BANK_FAILURE_PERCENT=20`, `BANK_DUPLICATE_PERCENT=10`, `SIM_SEE
 | %10 çift cevap | `go test -run TestBankSendsDuplicateNotifications ./internal/sim/` | Sonuç bildirimlerinin ≈ %10'u iki kez gelir |
 | Aynı tohum = aynı davranış | `go test -run TestBankIsDeterministicPerSeed ./internal/sim/` | İki örnek aynı isteklere aynı kaderi yaşatır; farklı tohum farklı |
 
-## Doğrulama kimlikleri (F-1 … F-8, T-1 … T-7)
+## Doğrulama kimlikleri: durum özeti
 
-Her kimlik, ilgili özellik geliştirildiğinde bu tabloya ve `make verify`'a eklenecek.
+Ayrıntılı "nasıl denenir / beklenen sonuç" satırları yukarıdaki `make verify` tablosundadır. Son çalıştırma: **17 PASS, 4 FAIL**.
+
+| Kimlik | Durum | Kanıt komutu |
+|---|---|---|
+| F-1 … F-6 | ✅ PASS | `make verify` |
+| F-7 Risk kuralları ve inceleme kuyruğu | ❌ yapılmadı | — |
+| F-8 Gün sonu mutabakat ve müşteri ekstresi | ❌ yapılmadı (yalnız faiz ve provizyon süre aşımı adımları var) | — |
+| T-1 Para korunumu | ✅ | `make verify`; `cd backend && go test -race -run TestConservationUnder10000ConcurrentTransfers -v ./internal/transfer/` |
+| T-2 İdempotent transfer ve saga | ✅ | `make verify`; "T-2 kanıt komutları" |
+| T-3 Provizyon ve kullanılabilir bakiye | ✅ | `make verify`; "T-3 kanıt komutları" |
+| T-4 Faiz tahakkuku | ✅ | `make verify`; `go test -race ./internal/interest/` |
+| T-5 Mutabakat motoru | ❌ yapılmadı | — |
+| T-6 Gerçek zamanlı risk kuralları | ❌ yapılmadı | — |
+| T-7 Zaman yolculuğu, bütünlük, DR | ✅ | `make verify` (PITR dahil); `make pitr-demo` |
 
 ## Arayüz senaryoları
 

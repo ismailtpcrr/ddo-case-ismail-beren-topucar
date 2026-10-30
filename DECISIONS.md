@@ -1,10 +1,41 @@
 # Mimari Karar Kayıtları
 
 Her kayıt şu başlıklardan oluşur: **Bağlam · Karar · Değerlendirilen alternatifler · Sonuçlar / ödünleşimler**.
-Kayıtlar alındıkları sırayla eklenir. Projenin ana mimari kararları (modüler monolit, defter tasarımı, kilit sırası vb.)
-PLAN.md §14'teki listeden buraya taşınacaktır.
+Kayıtlar alındıkları sırayla eklenir; her biri uygulandığı adımda yazıldı. PLAN.md §14'teki karar listesinin karşılıkları aşağıdaki tabloda.
 
 ---
+
+## Özet tablo (tek sayfada)
+
+Aşağıdaki 27 kaydın her biri **Bağlam · Karar · Alternatifler · Sonuçlar** başlıklarıyla ayrıntılıdır; önce bu tabloya bakın.
+
+| Kayıt | Konu | Kararın özü |
+|---|---|---|
+| K-01 | Dil | Hata mesajı Türkçe; hata kodu ve log İngilizce |
+| K-02 | HTTP kodları | 405, 413, 504 eklendi |
+| K-03 | Girişsiz uçlar | Yalnız `/health`, `/metrics`*, belge uçları ve giriş uçları; gerisi `Require(izin)` arkasında (*`/metrics` yapılmadı) |
+| K-04, K-05 | Kod düzeni | `page` ve `health` paketleri; "global yok" kuralının iki bilinçli istisnası |
+| K-06 | DB rolleri | Sahip rol migrasyon yapar; uygulama rolü şemayı değiştiremez, defter/denetimde yalnız INSERT/SELECT |
+| K-07 | Kimlik | argon2id, kısa ömürlü access JWT, döner refresh token (`HttpOnly`), yeniden kullanımda tüm oturumlar kapanır |
+| K-08 | Idempotency | Anahtar iş transaction'ında; eşzamanlı istek benzersizlik kilidinde bekler; ret de sonuçtur |
+| K-09 | İş kuyruğu | `SKIP LOCKED` + kira; "en az bir kez" çalışır, handler'lar tekrara dayanıklı |
+| K-10 | `make verify` | Dışarıdan HTTP; yazılmamış kimlik FAIL (yeşil gösterilmez) |
+| K-11 | Para | `int64` kuruş, ara hesap `decimal`, banker's rounding, float yasak (lint) |
+| K-12 | Hesap modeli | Doğal taraf, iç hesap planı, mod-97 IBAN, başkasının hesabı 403 |
+| K-13 | Defter | İşaretli satır; borç = alacak Go + DB'de; sıralı kilit; değişmez; iki zaman; ters kayıt |
+| K-14 | İç transfer | Ret de sonuçtur; durum makinesi; `/admin/invariants` |
+| K-15 | Havuz | Transaction içinde ikinci bağlantı alınmaz (10.000 transfer testi bir kilitlenmeyi yakaladı) |
+| K-16 | Seed | Tek transaction, `COPY`, tohumlu deterministik UUIDv7 |
+| K-17 | Arayüz | Bellekte access token, tek yenileme isteği, Idempotency-Key yaşam döngüsü |
+| K-18 | CI | Üç iş; `govulncheck` sorunları ve düzeltmeleri |
+| K-19 | Banka sahtesi | %20 hata (belirsiz sonuç dahil), %10 çift cevap, referans başına kalıcı işlem |
+| K-20 | Dış transfer | Ayır → gönder → (sorgula) → tamamla ya da ters kayıtla telafi |
+| K-21 | Kart | Koşullu UPDATE ile bloke; tek kilitli güncellemeyle çekim; sıralı kilit |
+| K-22 | Zaman yolculuğu | `as_of` × `known_at`, bakiye defterden türetilir |
+| K-23 | Dört göz | Eşik `>` 10.000 TL, bekleyende bloke yok, DB kısıtı |
+| K-24 | Felaket kurtarma | WAL arşivi + temel yedek (PITR); `pg_dump` ayrı; `make verify`'a bağlı |
+| K-25 | Kur | TL'ye göre kotasyon, ondalık metin, kayda yazılan kur, tek dengeli kayıt |
+| K-26, K-27 | Faiz | Saf fonksiyon, kümülatif yuvarlama; partili, kaldığı yerden devam eden gün sonu |
 
 ## K-01 Hata mesajlarının ve logların dili
 
@@ -160,7 +191,7 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
     "ayağa kalkmış sistem üzerinde" uçtan uca deneme istiyor.
   - Uygulanmamış kimlikleri SKIP göstermek: tablo yeşil görünür ama sistemin eksik olduğunu gizler.
 - **Sonuçlar / ödünleşimler:** Bütün kimlikler uygulanana kadar `make verify` sıfırdan farklı kodla biter. Bu bilinçli bir
-  tercih: tablo her an sistemin gerçek durumunu gösterir.
+  tercih: tablo her an sistemin gerçek durumunu gösterir. *(Teslim durumu: 17 PASS, 4 FAIL; FAIL olanlar yapılmayan F-7, F-8, T-5, T-6.)*
 
 ## K-11 Para tutarları: int64 minor birim, ara hesapta decimal, banker's rounding
 
@@ -205,7 +236,7 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   - Başkasının hesabına 404 döndürmek (hesabın varlığını gizlemek): şartname 401/403 istediği için 403 seçildi. Hesap
     kimlikleri tahmin edilemez UUID'ler olduğundan varlığı sızdırmanın pratik riski düşüktür.
   - Bakiye işaretini her yerde "+ borç" olarak tutmak: müşteri ekranında ve kısıtta işaret çevirmek gerekir; hata kaynağı olur.
-- **Sonuçlar / ödünleşimler:** Demo müşteri ve hesapları api açılışında oluşur; bakiyeleri açılış kaydıyla (defterden) B6'da gelir.
+- **Sonuçlar / ödünleşimler:** Demo müşteri ve hesapları api açılışında oluşur; bakiyeleri açılış kaydıyla (defterden) gelir (B3'te yapıldı).
 
 ## K-13 Defterin ayrıntıları: işaretli satır, üç katlı borç = alacak, iki zaman, ters kayıt kuralları
 
@@ -229,7 +260,7 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
     yazar; ne istemci ne uygulama belirleyebilir). `effective_at ≤ recorded_at`: geriye tarihli kayıt olur, ileri tarihli
     olmaz. Zamanların satırlarda kopyası var (bakiye/hareket sorguları tek dizinden okur); kopyaların kayıttakilerle aynı
     olmasını yabancı anahtar sağlar, bu da commit edilmiş bir kayda sonradan satır eklenmesini engeller.
-    `as_of`/`known_at` sorguları F1'de.
+    `as_of`/`known_at` sorguları yapıldı (K-22).
   - **Değişmezlik:** `forbid_mutation()` trigger'ı (UPDATE/DELETE/TRUNCATE, süper kullanıcıya da) + uygulama rolünden
     `UPDATE, DELETE, TRUNCATE` yetkisinin geri alınması.
   - **Ters kayıt:** `Reverse` genel bir servis işlevidir (transfer sagasının telafisi gibi modüller kendi transaction'larında
@@ -242,7 +273,7 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   - **Defter kayıtları ayrıca `audit_log`'a yazılmaz:** defter zaten değiştirilemez bir kayıttır. Denetim kaydına kaydı
     doğuran iş işlemi (transfer, ters kayıt …) yazılır.
   - **Demo müşterinin açılış bakiyeleri bu adımda** defterden yazılır (borç `OPENING_EQUITY` / alacak müşteri): defter
-    artık var ve B4'teki transfer bakiyesiz denenemez. Simülatör müşterilerininki B6'da.
+    artık var ve B4'teki transfer bakiyesiz denenemez. Simülatör müşterilerininki toplu seed'dedir (K-16).
 - **Değerlendirilen alternatifler:**
   - Ayrı borç/alacak kolonları: denge kontrolü ve bakiye toplamı tek işaretli kolonla daha basit.
   - Özeti veritabanı trigger'ıyla güncellemek: kilit sırası ve yetersiz bakiye kararı uygulamanın elinden çıkar; hata
@@ -275,8 +306,8 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   - **Durum makinesi baştan tam:** `transitions` tablosu PLAN.md §5.2'nin tamamını içerir (dış banka durumları dahil);
     iç transfer yalnız `CREATED → COMPLETED/REJECTED` kullanır. Her geçiş koşullu `UPDATE … WHERE state = $beklenen` +
     olay satırı; tabloda olmayan geçiş `409 INVALID_STATE_TRANSITION` olur ve loglanır. `transfer_events` eklemeli-yalnızdır.
-  - **Alıcı IBAN ile verilir.** Bilinmeyen IBAN dış banka transferidir; C2'ye kadar `422 EXTERNAL_TRANSFER_UNAVAILABLE`.
-    Farklı para birimi G1'e kadar `422 CURRENCY_MISMATCH`. (Sessizce yanlış işlem yapmaktansa açıkça reddetmek.)
+  - **Alıcı IBAN ile verilir.** Bilinmeyen IBAN dış banka transferidir; *(B4 anındaki karar; sonradan değişti)* dış banka transferi K-20'de, çok para birimi K-25'te yapıldı; bilinmeyen IBAN artık dış transferdir.
+    Alıcı hesabın para birimi farklıysa kurla çevrilir. (Sessizce yanlış işlem yapmaktansa açıkça reddetmek.)
   - **Yetki:** başlatma `transfers:create` (müşteri yalnız kendi hesabından; operasyon uzmanı herhangi bir müşteri
     hesabından). Okuma: gönderen ya da alıcı müşteri, `ledger:read` sahibi roller.
   - **`/admin/invariants`:** `ledger:read` izniyle (yeni izin yok). Ölçümler tek bir `REPEATABLE READ` salt okunur
@@ -354,7 +385,7 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
 - **Değerlendirilen alternatifler:** Access token'ı `localStorage`'da saklamak (XSS ile okunabilir); her tıklamada yeni
   Idempotency-Key üretmek (ağ hatasında yeniden denemek çift işlem riski taşır); Next.js (ek sunucu süreci, bu ürün için fayda yok).
 - **Sonuçlar / ödünleşimler:** Mantine paketi büyük (≈ 0,5 MB minify); tek sayfalık iç uygulama için kabul edildi, kod bölme
-  gerekirse yapılır. Bu adımda ekranlar: giriş, hesaplar, hesap hareketleri, transfer; operasyon/risk/uyum/denetçi ekranları K2'de.
+  gerekirse yapılır. Bu adımda ekranlar: giriş, hesaplar, hesap hareketleri, transfer; operasyon/risk/uyum/denetçi ekranları **yapılmadı** (README'de belirtildi).
 
 ## K-18 CI: üç iş, yerelle aynı komutlar, bilinen zafiyet bağımlılıkla giderildi
 
@@ -388,7 +419,7 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
     aynı referansla tekrar gönderim yeni işlem yapmaz, aynı sonucu verir (banka tarafı idempotans).
   - **Zaman aşımı = bağlantı asılı kalır** (varsayılan 15 sn, istemci zaman aşımından uzun) ve sonra yanıtsız kesilir.
   - **Çift cevap = sonuç bildirimi (webhook) iki kez:** işlenen her transfer için bildirim ayrıca, kısa gecikmeyle API'ye gider
-    ve %10'unda iki kez. Bildirim "sistem" rolündeki hesapla gönderilir (RBAC her yerde). API'nin webhook ucu C2'de gelir;
+    ve %10'unda iki kez. Bildirim "sistem" rolündeki hesapla gönderilir (RBAC her yerde). API'nin webhook ucu K-20'de yapıldı;
     o zamana kadar bildirim başarısızlıkları yalnız debug seviyesinde loglanır.
   - **Sorgulama hata üretmez** (`COMPLETED | REJECTED | NOT_FOUND`): belirsiz sonucu çözmenin güvenilir bir yolu olmalı.
   - Geçersiz kontrol haneli alıcı IBAN'ı `REJECTED` olur (şartnamede olmayan bir "rastgele ret oranı" eklenmedi).
@@ -426,8 +457,8 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   - Bilinen sınırlama: banka `NOT_FOUND` dedikten *sonra* gecikmiş bir isteği işlerse para iki kez çıkabilir (gerçek
     bankalarda "geç işleme"); çözüm bankanın referansı kapatması/iptal API'sidir. Simülatör bunu yapmaz (zaman aşımında
     işlemeden bağlantıyı keser, işleme ya hemen olur ya hiç olmaz).
-  - Belirsiz kalan transferler (deneme sınırı aşıldı) elle çözülene kadar para ayrılmış durumdadır; operasyon ekranı K2'de.
-  - Dört göz onayı ve risk incelemesi (PENDING_APPROVAL/UNDER_REVIEW) F2/J1'de aynı makineye bağlanır.
+  - Belirsiz kalan transferler (deneme sınırı aşıldı) elle çözülene kadar para ayrılmış durumdadır; operasyon ekranı **yapılmadı**; liste `GET /transfers?state=UNKNOWN` ile alınır.
+  - Dört göz onayı (PENDING_APPROVAL) K-23'te aynı makineye bağlandı; risk incelemesi (UNDER_REVIEW) **yapılmadı**.
 
 *K-18 eki (L1 sonrası düzeltme):* GitHub'daki ilk üç CI çalışması `govulncheck@v1.1.4` adımında kırmızı çıktı: runner'daki Go 1.27.0
 ile eski `x/tools` içindeki SSA oluşturucusu `panic: unexpected expr: *ast.KeyValueExpr` verdi (testler ve lint geçmişti).
@@ -462,7 +493,7 @@ Ders: CI'da kullanılan araç sürümleri, `go.mod`'daki Go sürümüyle birlikt
   fazla gidiş-dönüş); SERIALIZABLE (sıcak hesapta sürekli yeniden deneme); süre aşımını `jobs` kuyruğunda tek tek işlemek
   (her provizyon için iş satırı; periyodik tarama daha basit ve `holds_expiry_idx` ile ucuz).
 - **Sonuçlar / ödünleşimler:** Provizyonlar farklı para birimi desteklemez (`CURRENCY_MISMATCH`; çok para birimi G1). Risk
-  kuralı (J1) provizyondan önce çağrılacak. Süre aşımı en geç `HOLD_EXPIRY_INTERVAL` gecikmeyle işlenir; bu aralıkta
+  kuralı **yapılmadı** (risk modülü yok). Süre aşımı en geç `HOLD_EXPIRY_INTERVAL` gecikmeyle işlenir; bu aralıkta
   süresi dolmuş ama henüz işlenmemiş bir provizyondan çekim yapılabilir (bilinçli: banka tarafında "geç çekim" olağandır).
 
 *K-18 eki 2:* govulncheck v1.9.0 çalıştı ve Go 1.27.0 standart kütüphanesindeki iki gerçek zafiyeti bildirdi (`GO-2026-6809`
@@ -508,11 +539,11 @@ Docker imajı zaten `golang:1.27-alpine` (güncel yama) ile derlenir. Yerelde Go
     kaydeder ama kısıt yalnız `APPROVED` durumuna uygulanır (isteyen kendi isteğinden vazgeçebilir; para zaten hareket etmedi).
   - **Eşzamanlılık:** transfer satırı ve onay kaydı `FOR UPDATE`; eşzamanlı iki onaydan biri yürütür, diğeri 409. Onay ve ret
     `Idempotency-Key` ister.
-  - **Döviz:** TL karşılığı için kur G1'de bağlanır; o zamana kadar muhafazakâr kural: döviz tutarı eşiği (1 birim ≥ 1 TL sayılarak) aşarsa onay istenir.
+  - **Döviz:** eşik, güncel kurla TL karşılığına göre uygulanır (K-25; başlangıçta geçici muhafazakâr kural vardı, kaldırıldı).
 - **Değerlendirilen alternatifler:** Bekleyen tutarı bloke etmek (haftalarca bekleyen onay bakiyeyi kilitler; kullanılabilir
   bakiye muhasebesi karmaşıklaşır, kart provizyonuyla çakışır); onayı yalnız uygulamada kontrol etmek (doğrudan SQL ile aşılabilir).
 - **Sonuçlar / ödünleşimler:** İki büyük transfer aynı bakiyeye karşı bekleyebilir; ikincisi onayda reddedilir. Onay kuyruğu
-  ekranı K2'de (şimdilik `GET /transfers?state=PENDING_APPROVAL`).
+  ekranı **yapılmadı**; `GET /transfers?state=PENDING_APPROVAL` kullanılır.
 
 ## K-24 Felaket kurtarma: WAL arşivi + temel yedek ile PITR, pg_dump'tan ayrı, make verify'a bağlı
 
