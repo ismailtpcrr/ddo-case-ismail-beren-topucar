@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"parakopru/internal/account"
+	"parakopru/internal/card"
 	"parakopru/internal/ledger"
 	"parakopru/internal/money"
 	"parakopru/internal/platform/audit"
@@ -94,6 +95,11 @@ func write(ctx context.Context, tx db.DBTX, rec *audit.Recorder, p Params, ds Da
 			[]any{a.CreditID, a.EntryID, a.ID, string(a.Currency), -a.Opening, now})
 	}
 
+	cards := make([][]any, len(ds.Cards))
+	for i, c := range ds.Cards {
+		cards[i] = []any{c.ID, c.AccountID, c.CustomerID, card.MaskedPAN(c.Last4)}
+	}
+
 	copies := []struct {
 		table pgx.Identifier
 		cols  []string
@@ -101,6 +107,7 @@ func write(ctx context.Context, tx db.DBTX, rec *audit.Recorder, p Params, ds Da
 	}{
 		{pgx.Identifier{"customers"}, []string{"id", "full_name", "national_id", "email"}, customers},
 		{pgx.Identifier{"accounts"}, []string{"id", "customer_id", "kind", "currency", "normal_side", "allow_negative", "name", "iban", "interest_product", "maturity_date"}, accounts},
+		{pgx.Identifier{"cards"}, []string{"id", "account_id", "customer_id", "pan_masked"}, cards},
 		{pgx.Identifier{"account_balances"}, []string{"account_id", "balance_minor", "allow_negative"}, balances},
 		{pgx.Identifier{"journal_entries"}, []string{"id", "kind", "description", "effective_at"}, entries},
 		{pgx.Identifier{"postings"}, []string{"id", "entry_id", "account_id", "currency", "amount_minor", "effective_at"}, postings},

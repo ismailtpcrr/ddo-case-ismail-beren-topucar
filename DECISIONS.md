@@ -433,3 +433,38 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
 ile eski `x/tools` içindeki SSA oluşturucusu `panic: unexpected expr: *ast.KeyValueExpr` verdi (testler ve lint geçmişti).
 Yerelde Go 1.27.3 olduğu için görünmemişti. `govulncheck@v1.9.0`'a yükseltildi ve yerelde temiz çalıştığı doğrulandı.
 Ders: CI'da kullanılan araç sürümleri, `go.mod`'daki Go sürümüyle birlikte sınanmalı.
+
+## K-21 Kart provizyonu: koşullu UPDATE ile bloke, tek kilitli güncellemeyle çekim, sıralı kilit
+
+*(PLAN.md §5.4; PLAN §14 madde 8'in kart tarafı; E1 adımı.)*
+
+- **Bağlam:** proje.md Görev 3: provizyon bakiyeyi bloke eder; kısmi çekim, süre aşımında otomatik serbest bırakma, iade;
+  kullanılabilir bakiye = bakiye − aktif bloklar her zaman doğru; eşzamanlı provizyon/çekim/iade yarışları kanıtlanmalı.
+- **Karar:**
+  - **Provizyon:** `UPDATE account_balances SET held_minor = held_minor + $n WHERE … AND balance_minor − held_minor ≥ $n`
+    (koşullu UPDATE; satırı kilitler, eşzamanlı provizyonlar sıraya girer ve her biri güncel değeri görür). 0 satır
+    güncellenirse `INSUFFICIENT_FUNDS`. Defter kaydı yok (bloke ≠ harcama). `CHECK (balance − held ≥ 0)` son güvence.
+  - **Çekim:** bakiye düşüşü ve blok azalışı **aynı kilitli güncellemede** yapılır: `ledger.Line.ReleaseHold`. Önce
+    bloğu ayrı düşürüp sonra Post yapmak hem kullanılabilir bakiyeyi çift saydırır hem de iki ayrı kilit anı yaratır.
+    Final çekimde (ya da tamamı çekilince) kalan blok da aynı adımda serbest kalır.
+  - **Kilit sırası her yerde:** önce hesap özetleri (kimliğe göre sıralı, `ledger.LockAccounts`), sonra provizyon/çekim
+    satırı `FOR UPDATE`. Süre aşımı işi bile aynı sırayı izler: adayları kilitsiz listeler, hesabı kilitler, provizyonu
+    `FOR UPDATE SKIP LOCKED` ile alır (çekimle çakışan atlanır, sonraki turda bakılır). Provizyon satırını önce
+    kilitleyen bir akış, çekimle ters sırada kilit alıp deadlock üretirdi.
+  - **Durumlar:** `ACTIVE`, `CAPTURED` (tamamen çekildi ya da final ile kalan bırakıldı), `EXPIRED`. `amount = çekilen +
+    serbest bırakılan + kalan` DB kısıtıdır; yalnız `ACTIVE` provizyonun kalanı bloke eder. `/admin/invariants` artık
+    `held_minor = Σ aktif kalan` kontrolünü de yapar (`hold_mismatches`).
+  - **Kart ağı = sistem rolü:** üç POST yalnız `system:callbacks` ile ve Idempotency-Key ile. Kart numarası maskeli saklanır
+    (tam PAN hiçbir yerde yok). Müşteri kartlarını ve kendi hesabının provizyonlarını okur.
+  - **Süre aşımı** worker'da periyodik (`HOLD_EXPIRY_INTERVAL`, 5 sn); `ttl_seconds` (1 sn – 30 gün) yalnız sistem rolünün
+    isteğinde ve doğrulamada süre aşımını kısa sürede göstermek içindir.
+- **Değerlendirilen alternatifler:** Provizyonu `SELECT … FOR UPDATE` + ayrı UPDATE ile yapmak (iki adım, aynı sonuç, daha
+  fazla gidiş-dönüş); SERIALIZABLE (sıcak hesapta sürekli yeniden deneme); süre aşımını `jobs` kuyruğunda tek tek işlemek
+  (her provizyon için iş satırı; periyodik tarama daha basit ve `holds_expiry_idx` ile ucuz).
+- **Sonuçlar / ödünleşimler:** Provizyonlar farklı para birimi desteklemez (`CURRENCY_MISMATCH`; çok para birimi G1). Risk
+  kuralı (J1) provizyondan önce çağrılacak. Süre aşımı en geç `HOLD_EXPIRY_INTERVAL` gecikmeyle işlenir; bu aralıkta
+  süresi dolmuş ama henüz işlenmemiş bir provizyondan çekim yapılabilir (bilinçli: banka tarafında "geç çekim" olağandır).
+
+*K-18 eki 2:* govulncheck v1.9.0 çalıştı ve Go 1.27.0 standart kütüphanesindeki iki gerçek zafiyeti bildirdi (`GO-2026-6809`
+crypto/x509, `GO-2026-6617` net/http2). CI artık `go.mod`'daki sürüm yerine Go 1.27'nin en son yamasını (`check-latest`) kurar;
+Docker imajı zaten `golang:1.27-alpine` (güncel yama) ile derlenir. Yerelde Go 1.27.3 ile tarama temiz.

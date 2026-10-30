@@ -21,6 +21,7 @@ import (
 
 	"parakopru/internal/account"
 	"parakopru/internal/bank"
+	"parakopru/internal/card"
 	"parakopru/internal/customer"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
@@ -74,6 +75,8 @@ func run() error {
 	transferSvc := transfer.NewService(txm, idGen, recorder, ledgerSvc, accountSvc, jobs.NewQueue(idGen, clk),
 		bank.New(cfg.BankURL, cfg.BankTimeout))
 
+	cardSvc := card.NewService(txm, idGen, clk, recorder, ledgerSvc, accountSvc)
+
 	// İş türleri.
 	runner.Handle(transfer.JobSend, transferSvc.HandleSend)
 
@@ -83,6 +86,24 @@ func run() error {
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.ListenAndServe() }()
+
+	// Süresi dolan kart provizyonları periyodik olarak serbest bırakılır (PLAN.md §5.4).
+	expiryDone := make(chan struct{})
+	go func() {
+		defer close(expiryDone)
+		t := time.NewTicker(cfg.HoldExpiryInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if _, err := cardSvc.ExpireDue(ctx); err != nil && ctx.Err() == nil {
+					log.Error("hold expiry failed", slog.Any("error", err))
+				}
+			}
+		}
+	}()
 
 	runnerDone := make(chan struct{})
 	go func() {
@@ -100,6 +121,7 @@ func run() error {
 
 	// Düzgün kapanış: yeni iş alınmaz, çalışan işlerin bitmesi ShutdownTimeout kadar beklenir.
 	// Süre dolarsa yarım kalan işler kira süreleri bitince başka bir worker tarafından yeniden alınır.
+	<-expiryDone
 	select {
 	case <-runnerDone:
 		log.Info("all running jobs finished")

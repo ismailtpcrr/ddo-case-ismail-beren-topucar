@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"parakopru/internal/account"
+	"parakopru/internal/card"
 	"parakopru/internal/customer"
 	"parakopru/internal/ledger"
 	"parakopru/internal/money"
@@ -26,7 +27,7 @@ const demoCustomerNationalID = "10000000146"
 // Açılış bakiyeleri de defterden geçer (borç OPENING_EQUITY / alacak müşteri); seed sonrası da her para biriminde
 // borç = alacak ve özet = defterden türetilen bakiye. 20.000 müşterilik toplu veri simülatörün işidir.
 func seedBase(ctx context.Context, log *slog.Logger, txm *db.TxManager, clk clock.Clock, demoPassword string,
-	authSvc *auth.Service, customers *customer.Service, accounts *account.Service, ledgerSvc *ledger.Service,
+	authSvc *auth.Service, customers *customer.Service, accounts *account.Service, ledgerSvc *ledger.Service, cards *card.Service,
 ) error {
 	if _, err := authSvc.SeedDemoUsers(ctx, demoPassword); err != nil {
 		return err
@@ -64,6 +65,11 @@ func seedBase(ctx context.Context, log *slog.Logger, txm *db.TxManager, clk cloc
 			}
 			if err := postOpeningBalance(ctx, tx, accounts, ledgerSvc, a, money.New(d.opening, a.Currency)); err != nil {
 				return err
+			}
+			if a.Kind == account.Checking && a.Currency == money.TRY { // demo müşterinin kartı vadesiz TRY hesabına bağlı
+				if _, err := cards.Issue(ctx, tx, a.ID, c.ID); err != nil {
+					return err
+				}
 			}
 		}
 		log.Info("demo customer seeded", slog.String("customer_id", c.ID.String()))

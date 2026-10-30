@@ -44,10 +44,19 @@ type Account struct {
 	CreditID     uuid.UUID // kaydın alacak satırı (hesap)
 }
 
+// Card üretilen banka kartıdır (müşterinin vadesiz TRY hesabına bağlı).
+type Card struct {
+	ID         uuid.UUID
+	AccountID  uuid.UUID
+	CustomerID uuid.UUID
+	Last4      int
+}
+
 // Dataset üretilen verinin tamamıdır.
 type Dataset struct {
 	Customers []Customer
 	Accounts  []Account
+	Cards     []Card
 }
 
 var firstNames = []string{"Ahmet", "Mehmet", "Mustafa", "Ali", "Hüseyin", "Hasan", "İbrahim", "Yusuf", "Emre", "Burak", "Can", "Cem", "Deniz", "Kerem",
@@ -114,6 +123,7 @@ func Generate(p Params) Dataset {
 			ds.Accounts = append(ds.Accounts, a)
 		}
 		add(account.Checking, money.TRY, 200_000_00)
+		ds.Cards = append(ds.Cards, Card{ID: ids.next(), AccountID: ds.Accounts[len(ds.Accounts)-1].ID, CustomerID: c.ID, Last4: rng.IntN(10000)})
 		if rng.IntN(100) < 25 {
 			add(account.Checking, money.USD, 10_000_00)
 		}

@@ -223,6 +223,24 @@ conservation_test.go:143: [rapid] OK, passed 100 tests (4.521866208s)
 | Toplu yazma doğru | `go test -run TestSeedWritesBalancedLedgerAndIsIdempotent -v ./internal/sim/` | Kayıtlar yazılır, değişmezler ok, OPENING_EQUITY eksi toplam, ikinci çalıştırma atlanır |
 | Tohumu değiştirme | `.env` içinde `SIM_SEED`/`SIM_CUSTOMERS` değiştirip `make reset-demo` | Farklı tohum farklı veri; boyut `SIM_CUSTOMERS` ile ayarlanır |
 
+## Kart provizyonu, çekim, iade
+
+Kart ağı çağrıları yalnız `sistem@parakopru.test` hesabıyla yapılır (RBAC); demo müşterinin vadesiz TRY hesabına bağlı bir kartı vardır
+(`GET /api/v1/cards`), simülatör müşterilerinin de birer kartı vardır.
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Provizyon | [requests.http](requests.http) "Kart provizyonu" (sistem token'ı) | `201`; hesapta `balance_minor` aynı, `held_minor` +tutar, `available_minor` −tutar; defter kaydı yok |
+| Kullanılabilir bakiyeyi aşma | Bakiyeden büyük tutarla provizyon | `422 INSUFFICIENT_FUNDS`; blok değişmez |
+| Kısmi ve final çekim | "Kısmi çekim", "Final çekim" | Kısmi: bakiye çekilen kadar düşer, blok kalanı korur, hold `ACTIVE`. Final: kalan blok serbest, hold `CAPTURED` (`released_minor` dolu) |
+| Aşırı çekim / aktif olmayan | Kalandan fazla; çekilmiş holda tekrar | `422 CAPTURE_EXCEEDS_HOLD`; `409 HOLD_NOT_ACTIVE` |
+| İade | "İade" | Bakiye iade kadar artar; toplam iade çekilenden fazlaysa `422 REFUND_EXCEEDS_CAPTURE` |
+| Süre aşımı | `ttl_seconds: 5` ile provizyon aç, ~10 sn bekle, `GET /accounts/{id}/holds?state=EXPIRED` | Worker blokeyi serbest bırakır (`HOLD_EXPIRY_INTERVAL`, varsayılan 5 sn); hold `EXPIRED`; sonrasında çekim `409` |
+| Idempotency | Aynı anahtarla tekrar | Aynı yanıt, `Idempotent-Replayed: true`; ikinci blok/çekim/iade yok |
+| Değişmezler | `GET /api/v1/admin/invariants` | `hold_mismatches: 0` (held_minor = Σ aktif provizyon) |
+| Yetki | Müşteri token'ıyla `POST /cards/{id}/authorizations`; başka müşterinin hesabı `/holds` | `403` |
+| Go testleri | `cd backend && go test -race -v ./internal/card/` | Provizyon, kısmi/final çekim, iade, süre aşımı, idempotency, nesne düzeyi yetki |
+
 ## Dış banka transferi (saga)
 
 | Ne denenir | Nasıl denenir | Beklenen sonuç |

@@ -47,6 +47,9 @@ type Line struct {
 	AccountID uuid.UUID
 	Side      account.Side
 	Amount    money.Amount
+	// ReleaseHold bu satırla birlikte hesabın blokesinden düşürülecek tutardır (kart çekimi: provizyon bakiyeye
+	// dönüşür). Kilit sırasını bozmamak için bloke düşürme ve bakiye değişimi aynı kilitli güncellemede yapılır.
+	ReleaseHold int64
 }
 
 // Debit hesaba borç yazan satırdır.

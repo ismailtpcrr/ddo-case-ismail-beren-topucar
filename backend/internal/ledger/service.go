@@ -59,6 +59,7 @@ func (s *Service) post(ctx context.Context, tx db.DBTX, e Entry, reversalOf *Ent
 	type change struct {
 		currency money.Currency
 		signed   money.Amount
+		release  int64
 	}
 	changes := map[uuid.UUID]*change{}
 	for _, l := range e.Lines {
@@ -75,6 +76,7 @@ func (s *Service) post(ctx context.Context, tx db.DBTX, e Entry, reversalOf *Ent
 			return uuid.Nil, fmt.Errorf("%w: %w", ErrInvalidEntry, err)
 		}
 		c.signed = sum
+		c.release += l.ReleaseHold
 	}
 	accountIDs := make([]uuid.UUID, 0, len(changes))
 	for id := range changes {
@@ -91,6 +93,7 @@ func (s *Service) post(ctx context.Context, tx db.DBTX, e Entry, reversalOf *Ent
 	}
 
 	deltas := make([]int64, len(locked))
+	releases := make([]int64, len(locked))
 	for i, b := range locked {
 		c := changes[b.AccountID]
 		if b.Currency != c.currency {
@@ -101,9 +104,13 @@ func (s *Service) post(ctx context.Context, tx db.DBTX, e Entry, reversalOf *Ent
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("%w: balance of %s: %w", ErrInvalidEntry, b.AccountID, err)
 		}
-		if !b.AllowNegative && next.Minor-b.HeldMinor < 0 {
+		if c.release < 0 || c.release > b.HeldMinor {
+			return uuid.Nil, fmt.Errorf("%w: release %d exceeds hold %d on %s", ErrInvalidEntry, c.release, b.HeldMinor, b.AccountID)
+		}
+		if !b.AllowNegative && next.Minor-(b.HeldMinor-c.release) < 0 {
 			return uuid.Nil, ErrInsufficientFunds
 		}
+		releases[i] = c.release
 		// locked, accountIDs ile aynı sırada (ikisi de hesap kimliğine göre sıralı).
 		deltas[i] = delta
 	}
@@ -124,7 +131,7 @@ func (s *Service) post(ctx context.Context, tx db.DBTX, e Entry, reversalOf *Ent
 	for i, b := range locked {
 		lockedIDs[i] = b.AccountID
 	}
-	if err := applyDeltas(ctx, tx, lockedIDs, deltas); err != nil {
+	if err := applyDeltas(ctx, tx, lockedIDs, deltas, releases); err != nil {
 		return uuid.Nil, err
 	}
 	return id, nil
@@ -251,4 +258,21 @@ func (s *Service) CheckInvariants(ctx context.Context) (Invariants, error) {
 		inv.OK = inv.OK && t.SumMinor == 0
 	}
 	return inv, nil
+}
+
+// LockAccounts verilen hesapların özet satırlarını Post ile aynı sırayla (hesap kimliğine göre) kilitler. Bir modül,
+// defter kaydından önce kendi satırını (ör. provizyon) kilitlemek zorundaysa önce bunu çağırır: "önce hesap özetleri
+// (sıralı), sonra modülün kendi satırı" kuralı her yerde aynı olduğu için deadlock oluşmaz.
+func (s *Service) LockAccounts(ctx context.Context, tx db.DBTX, ids ...uuid.UUID) error {
+	sorted := slices.Clone(ids)
+	slices.SortFunc(sorted, func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) })
+	sorted = slices.Compact(sorted)
+	locked, err := lockBalances(ctx, tx, sorted)
+	if err != nil {
+		return err
+	}
+	if len(locked) != len(sorted) {
+		return fmt.Errorf("%w: %d of %d accounts found", ErrAccount, len(locked), len(sorted))
+	}
+	return nil
 }

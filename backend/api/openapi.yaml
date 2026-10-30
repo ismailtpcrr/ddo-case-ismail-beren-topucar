@@ -404,7 +404,7 @@ paths:
       description: |
         İzin: `ledger:read`. Tek bir REPEATABLE READ snapshot'ında ölçer: her para biriminde Σ satırlar = 0,
         her kayıt dengeli, her hesapta bakiye özeti = defterden türetilen bakiye. `held_minor` = Σ aktif provizyon
-        kontrolü kart adımında (E1) eklenecek; o zamana kadar `hold_mismatches` null.
+        kontrolü `hold_mismatches` ile yapılır (0 olmalı).
       tags: [Defter]
       responses:
         "200":
@@ -468,6 +468,165 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { description: Alıcı hesap yok (`BENEFICIARY_NOT_FOUND`) ya da para birimi uyuşmuyor, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /api/v1/cards:
+    get:
+      summary: Kartlar (keyset sayfalı)
+      description: "İzin: `own_banking` ya da `ledger:read`. Müşteri yalnız kendi kartlarını görür. Kart numarası maskeli saklanır."
+      tags: [Kart]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Card" } }
+                  next_cursor: { type: string, nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/cards/{id}/authorizations:
+    post:
+      summary: Kart provizyonu (kart ağı)
+      description: |
+        İzin: `system:callbacks` (yalnız sistem rolü; kart ağını simülatör taklit eder). Kullanılabilir bakiye
+        (bakiye − aktif bloklar) yetiyorsa tutarı bloke eder; defter kaydı yazılmaz (bloke ≠ harcama). Koşullu `UPDATE` ile
+        yapıldığı için eşzamanlı provizyonlar kullanılabilir bakiyeyi aşamaz. `ttl_seconds` verilmezse 7 gün sonra
+        süresi dolar ve worker blokeyi serbest bırakır.
+      tags: [Kart]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_minor, currency]
+              additionalProperties: false
+              properties:
+                amount_minor: { type: integer, format: int64, minimum: 1 }
+                currency: { type: string, enum: [TRY, USD, EUR], description: Kartın hesabının para birimiyle aynı olmalı }
+                merchant: { type: string, maxLength: 100 }
+                ttl_seconds: { type: integer, minimum: 1, maximum: 2592000 }
+      responses:
+        "201":
+          description: Provizyon açıldı
+          headers: { Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Hold" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "`INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`, `CARD_BLOCKED` ya da `IDEMPOTENCY_KEY_REUSED`", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /api/v1/holds/{id}/captures:
+    post:
+      summary: Provizyondan çekim (kısmi ya da final)
+      description: |
+        İzin: `system:callbacks`. Bakiye düşer, blok azalır, defter kaydı yazılır (borç müşteri / alacak `CARD_SETTLEMENT`).
+        `final=true` (ya da tamamının çekilmesi) kalan bloğu serbest bırakır. Aktif olmayan provizyondan `409 HOLD_NOT_ACTIVE`,
+        kalandan fazla `422 CAPTURE_EXCEEDS_HOLD`.
+      tags: [Kart]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_minor]
+              additionalProperties: false
+              properties:
+                amount_minor: { type: integer, format: int64, minimum: 1 }
+                final: { type: boolean }
+      responses:
+        "201":
+          description: Çekim yapıldı
+          headers: { Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  capture: { $ref: "#/components/schemas/Capture" }
+                  hold: { $ref: "#/components/schemas/Hold" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Provizyon aktif değil (`HOLD_NOT_ACTIVE`), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "422": { description: "`CAPTURE_EXCEEDS_HOLD` ya da `IDEMPOTENCY_KEY_REUSED`", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /api/v1/captures/{id}/refunds:
+    post:
+      summary: Çekimin iadesi
+      description: |
+        İzin: `system:callbacks`. Defter: borç `CARD_SETTLEMENT` / alacak müşteri. Toplam iade çekilenden fazla olamaz
+        (`422 REFUND_EXCEEDS_CAPTURE`).
+      tags: [Kart]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_minor]
+              additionalProperties: false
+              properties:
+                amount_minor: { type: integer, format: int64, minimum: 1 }
+      responses:
+        "201":
+          description: İade yapıldı
+          headers: { Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refund: { type: object, properties: { id: { type: string, format: uuid }, capture_id: { type: string, format: uuid }, amount_minor: { type: integer, format: int64 }, journal_entry_id: { type: string, format: uuid }, created_at: { type: string, format: date-time } } }
+                  capture: { $ref: "#/components/schemas/Capture" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "`REFUND_EXCEEDS_CAPTURE` ya da `IDEMPOTENCY_KEY_REUSED`", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /api/v1/accounts/{id}/holds:
+    get:
+      summary: Hesabın provizyonları (en yeni önce, keyset sayfalı)
+      description: "İzin: `own_banking` ya da `ledger:read`. Müşteri başka bir müşterinin hesabını isterse 403. `state` ile süzülür."
+      tags: [Kart]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: state, in: query, schema: { type: string, enum: [ACTIVE, CAPTURED, EXPIRED] } }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Hold" } }
+                  next_cursor: { type: string, nullable: true }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /health:
     get:
@@ -673,6 +832,44 @@ components:
         unbalanced_entries: { type: integer, format: int64 }
         summary_mismatches: { type: integer, format: int64 }
         hold_mismatches: { type: integer, format: int64, nullable: true }
+
+    Card:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        customer_id: { type: string, format: uuid }
+        pan_masked: { type: string, example: "5400 **** **** 1234" }
+        status: { type: string, enum: [ACTIVE, BLOCKED] }
+        created_at: { type: string, format: date-time }
+
+    Hold:
+      type: object
+      description: "tutar = çekilen + serbest bırakılan + kalan; yalnız ACTIVE provizyonun kalanı bakiyeyi bloke eder"
+      properties:
+        id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        card_id: { type: string, format: uuid }
+        merchant: { type: string }
+        currency: { type: string, enum: [TRY, USD, EUR] }
+        amount_minor: { type: integer, format: int64 }
+        captured_minor: { type: integer, format: int64 }
+        released_minor: { type: integer, format: int64 }
+        remaining_minor: { type: integer, format: int64 }
+        state: { type: string, enum: [ACTIVE, CAPTURED, EXPIRED] }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    Capture:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        hold_id: { type: string, format: uuid }
+        amount_minor: { type: integer, format: int64 }
+        refunded_minor: { type: integer, format: int64 }
+        final: { type: boolean }
+        journal_entry_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
 
     AuditRecord:
       type: object

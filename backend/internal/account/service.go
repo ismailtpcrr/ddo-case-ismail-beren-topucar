@@ -193,3 +193,11 @@ func (s *Service) ByIBAN(ctx context.Context, q db.DBTX, iban string) (Account, 
 func (s *Service) OwnCustomerID(ctx context.Context, userID uuid.UUID) (uuid.UUID, error) {
 	return s.customers.IDForUser(ctx, s.tx.DB(), userID)
 }
+
+// ByID hesabı yetki kontrolü yapmadan getirir (kart ağı gibi sistem süreçleri için; çağıran modül kendi yetkisini denetler).
+func (s *Service) ByID(ctx context.Context, q db.DBTX, id uuid.UUID) (Account, error) {
+	if q == nil {
+		q = s.tx.DB()
+	}
+	return getAccount(ctx, q, id)
+}

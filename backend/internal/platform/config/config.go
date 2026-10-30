@@ -70,6 +70,9 @@ type Worker struct {
 	JobLease     time.Duration `env:"WORKER_JOB_LEASE"     envDefault:"2m"`
 
 	// Dış banka (simülatörün banka sahtesi) ve her çağrının zaman aşımı.
+	// Süresi dolan kart provizyonlarının serbest bırakılma sıklığı.
+	HoldExpiryInterval time.Duration `env:"HOLD_EXPIRY_INTERVAL" envDefault:"5s"`
+
 	BankURL     string        `env:"BANK_URL"     envDefault:"http://simulator:8080"`
 	BankTimeout time.Duration `env:"BANK_TIMEOUT" envDefault:"3s"`
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"parakopru/internal/account"
+	"parakopru/internal/card"
 	"parakopru/internal/customer"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
@@ -71,6 +72,12 @@ func TestCustomerAndAccountWritePermissions(t *testing.T) {
 		{auth.RoleSystem, http.MethodPost, "/api/v1/transfers"},
 		{auth.RoleCustomer, http.MethodGet, "/api/v1/admin/invariants"},
 		{auth.RoleSystem, http.MethodGet, "/api/v1/transfers"},
+		// Kart ağı çağrıları yalnız "sistem" rolünün; kartları yalnız hesap/kart sahibi roller okur.
+		{auth.RoleCustomer, http.MethodPost, "/api/v1/cards/" + uuid.NewString() + "/authorizations"},
+		{auth.RoleOperations, http.MethodPost, "/api/v1/holds/" + uuid.NewString() + "/captures"},
+		{auth.RoleAuditor, http.MethodPost, "/api/v1/captures/" + uuid.NewString() + "/refunds"},
+		{auth.RoleSystem, http.MethodGet, "/api/v1/cards"},
+		{auth.RoleSystem, http.MethodGet, "/api/v1/accounts/" + uuid.NewString() + "/holds"},
 		// Banka bildirimleri yalnız "sistem" rolünün.
 		{auth.RoleOperations, http.MethodPost, "/api/v1/webhooks/bank/transfer-status"},
 		{auth.RoleCustomer, http.MethodPost, "/api/v1/webhooks/bank/incoming"},
@@ -118,6 +125,7 @@ func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) 
 		Accounts:       account.NewHandler(nil),
 		Ledger:         ledger.NewHandler(nil),
 		Transfers:      transfer.NewHandler(nil),
+		Cards:          card.NewHandler(nil),
 	})
 	if extra != nil {
 		extra(h.(chi.Router))

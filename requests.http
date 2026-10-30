@@ -299,3 +299,58 @@ Authorization: Bearer {{loginOps.response.body.access_token}}
 Content-Type: application/json
 
 {"reference": "x", "beneficiary_iban": "TR110099900000000000777777", "amount_minor": 1, "currency": "TRY"}
+
+# ---------------------------------------------------------------------------
+# Kart provizyonu, çekim, iade (F-4, T-3) — kart ağı çağrıları yalnız sistem rolünün
+# ---------------------------------------------------------------------------
+
+### Demo müşterinin kartı (müşteri) — maskeli numara
+# @name myCards
+GET {{baseUrl}}/api/v1/cards
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Kart provizyonu (kart ağı = sistem) — 201; 100,00 TL bloke olur, bakiye değişmez, kullanılabilir bakiye düşer
+# @name authorize
+POST {{baseUrl}}/api/v1/cards/{{myCards.response.body.$.items[0].id}}/authorizations
+Authorization: Bearer {{loginSistem.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"amount_minor": 10000, "currency": "TRY", "merchant": "Kafe", "ttl_seconds": 600}
+
+### Kısmi çekim (40,00 TL) — bakiye 40 TL düşer, blokenin kalanı 60 TL; hold ACTIVE
+# @name capture1
+POST {{baseUrl}}/api/v1/holds/{{authorize.response.body.id}}/captures
+Authorization: Bearer {{loginSistem.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"amount_minor": 4000}
+
+### Final çekim (30,00 TL) — kalan 30 TL serbest bırakılır; hold CAPTURED
+POST {{baseUrl}}/api/v1/holds/{{authorize.response.body.id}}/captures
+Authorization: Bearer {{loginSistem.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"amount_minor": 3000, "final": true}
+
+### İade (10,00 TL) — çekilenden fazlası 422 REFUND_EXCEEDS_CAPTURE
+POST {{baseUrl}}/api/v1/captures/{{capture1.response.body.capture.id}}/refunds
+Authorization: Bearer {{loginSistem.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"amount_minor": 1000}
+
+### Hesabın provizyonları (müşteri) — ACTIVE / CAPTURED / EXPIRED
+GET {{baseUrl}}/api/v1/accounts/{{myAccounts.response.body.$.items[0].id}}/holds?limit=20
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+
+### Yetki ihlali: müşteri provizyon açamaz — 403
+POST {{baseUrl}}/api/v1/cards/{{myCards.response.body.$.items[0].id}}/authorizations
+Authorization: Bearer {{loginMusteri.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{"amount_minor": 100, "currency": "TRY"}

@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"parakopru/internal/account"
+	"parakopru/internal/card"
 	"parakopru/internal/customer"
 	"parakopru/internal/ledger"
 	"parakopru/internal/platform/audit"
@@ -33,6 +34,7 @@ type routerDeps struct {
 	Accounts       *account.Handler
 	Ledger         *ledger.Handler
 	Transfers      *transfer.Handler
+	Cards          *card.Handler
 }
 
 // newRouter tüm HTTP uçlarını ve ortak middleware zincirini kurar.
@@ -92,6 +94,14 @@ func newRouter(d routerDeps) http.Handler {
 			r.With(auth.Require(auth.PermTransfersCreate)).Post("/transfers", d.Transfers.Create)
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/transfers", d.Transfers.List)
 			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/transfers/{id}", d.Transfers.Get)
+
+			// Kart (F-4, T-3). Kart ağı çağrıları (provizyon, çekim, iade) yalnız "sistem" rolünün ve Idempotency-Key ister;
+			// müşteri kendi kartlarını ve hesabının provizyonlarını okur (nesne düzeyi yetki serviste).
+			r.With(auth.Require(auth.PermSystemCallbacks)).Post("/cards/{id}/authorizations", d.Cards.Authorize)
+			r.With(auth.Require(auth.PermSystemCallbacks)).Post("/holds/{id}/captures", d.Cards.Capture)
+			r.With(auth.Require(auth.PermSystemCallbacks)).Post("/captures/{id}/refunds", d.Cards.Refund)
+			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/cards", d.Cards.Cards)
+			r.With(auth.RequireAny(auth.PermOwnBanking, auth.PermLedgerRead)).Get("/accounts/{id}/holds", d.Cards.Holds)
 
 			// Banka bildirimleri: yalnız "sistem" rolü (simülatör bu rolle giriş yapar).
 			r.With(auth.Require(auth.PermSystemCallbacks)).Post("/webhooks/bank/transfer-status", d.Transfers.BankStatus)

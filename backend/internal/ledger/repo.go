@@ -86,12 +86,12 @@ func insertPostings(ctx context.Context, q db.DBTX, entryID EntryID, effectiveAt
 }
 
 // applyDeltas bakiye özetlerine doğal işaretli değişimleri ekler. Satırlar lockBalances ile kilitlenmiş olmalıdır.
-func applyDeltas(ctx context.Context, q db.DBTX, ids []uuid.UUID, deltas []int64) error {
+func applyDeltas(ctx context.Context, q db.DBTX, ids []uuid.UUID, deltas, releases []int64) error {
 	_, err := q.Exec(ctx, `
 		UPDATE account_balances b
-		   SET balance_minor = b.balance_minor + d.delta, updated_at = now()
-		  FROM unnest($1::uuid[], $2::bigint[]) AS d(account_id, delta)
-		 WHERE b.account_id = d.account_id`, ids, deltas)
+		   SET balance_minor = b.balance_minor + d.delta, held_minor = b.held_minor - d.release, updated_at = now()
+		  FROM unnest($1::uuid[], $2::bigint[], $3::bigint[]) AS d(account_id, delta, release)
+		 WHERE b.account_id = d.account_id`, ids, deltas, releases)
 	switch {
 	case db.IsCheckViolation(err, "account_balances_available_non_negative"):
 		return ErrInsufficientFunds // Go kontrolü bunu önceden yakalar; kısıt son güvencedir
@@ -223,5 +223,17 @@ func checkInvariants(ctx context.Context, q db.DBTX) (Invariants, error) {
 	if err != nil {
 		return inv, fmt.Errorf("ledger: invariants: %w", err)
 	}
+	// held_minor = Σ aktif provizyonların kalanı (kart modülü).
+	var holds int64
+	err = q.QueryRow(ctx, `
+		SELECT count(*)
+		  FROM account_balances b
+		  LEFT JOIN (SELECT account_id, sum(remaining_minor) AS s FROM holds WHERE state = 'ACTIVE' GROUP BY account_id) h
+		         ON h.account_id = b.account_id
+		 WHERE b.held_minor <> coalesce(h.s, 0)`).Scan(&holds)
+	if err != nil {
+		return inv, fmt.Errorf("ledger: invariants holds: %w", err)
+	}
+	inv.HoldMismatches = &holds
 	return inv, nil
 }
