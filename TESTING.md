@@ -36,7 +36,23 @@ Her rol için bir hesap, api ilk açıldığında otomatik oluşturulur. Hepsini
 | Rol izinleri | `make test` içindeki `TestPermissionMatrixMatchesPlan` | Yetki matrisi (PLAN.md §5.10) koddaki tabloyla birebir aynı; denetçinin yazma izni yok |
 | Çalınan refresh token | `make test` içindeki `TestRefreshRotatesAndDetectsReuse` | İptal edilmiş token tekrar gelince 401 ve kullanıcının bütün oturumları kapanır |
 
-Rolün izni olmayan bir uca erişim (`403 FORBIDDEN`) ilk rol kısıtlı uçla (denetim kaydı, A7) birlikte bu tabloya eklenecek.
+| Yetki ihlali (rolün izni yok) | Müşteri token'ıyla `curl -i -H "Authorization: Bearer <token>" http://localhost:8080/api/v1/audit-log` | `403 FORBIDDEN`; uyum ve denetçi token'ıyla `200` |
+
+## Denetim kaydı, idempotency ve iş kuyruğu
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Denetim kaydı okunur | Uyum ya da denetçi token'ıyla `GET /api/v1/audit-log?limit=20` | `200`; `{"items":[…],"next_cursor":…}`, en yeni önce |
+| Denetim kaydı değiştirilemez | `make test` içindeki `TestAuditLogIsAppendOnly` | Uygulama rolünün UPDATE/DELETE/TRUNCATE denemesi `42501` (yetki yok); süper kullanıcının denemesi bile trigger'a takılır (`23001`) |
+| Denetim satırı işlemle birlikte geri alınır | `TestRecordIsRolledBackWithTheOperation` | İşlem başarısız olunca denetim satırı da kalmaz |
+| Aynı Idempotency-Key aynı sonucu döndürür | `TestSameKeyReturnsSameResultWithoutRepeating`, `TestConcurrentRequestsWithSameKey` | İşlem tek kez yapılır; eşzamanlı 20 istek de aynı sonucu alır |
+| Aynı anahtar, farklı istek | `TestSameKeyDifferentRequestIsRejected` | `422 IDEMPOTENCY_KEY_REUSED` |
+| İş kuralı reddi de saklanır | `TestBusinessRejectionIsStoredAndPartialWritesUndone` | Tekrar istek aynı reddi alır; reddedilen işlemin yarım yazmaları geri alınır |
+| Outbox | `TestEnqueueFollowsTransaction` | Geri alınan transaction'ın işi kuyrukta yoktur |
+| Her iş bir kez çalışır | `TestConcurrentWorkersRunEachJobExactlyOnce` | 8 eşzamanlı worker, 200 iş: her iş tam bir kez (SKIP LOCKED) |
+| Çöken worker'ın işi kaybolmaz | `TestCrashedWorkersJobIsReclaimedAfterLease` | Kira dolunca iş başka worker'a geçer ve tamamlanır |
+| Worker çalışıyor | `docker compose ps worker` ve `docker compose logs worker` | `healthy`; `worker started` satırı |
+| Worker düzgün kapanır | `docker compose stop worker`, sonra `docker compose logs worker` | `shutdown signal received` → `all running jobs finished` → `worker stopped` |
 
 ## Sistemi başlatma
 

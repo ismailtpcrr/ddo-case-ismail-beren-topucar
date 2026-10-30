@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
 	"parakopru/internal/platform/clock"
 	"parakopru/internal/platform/health"
@@ -24,6 +26,20 @@ import (
 )
 
 const testSecret = "router-test-secret-0123456789-0123456789"
+
+// Rolün izni olmayan uç 403 döner; servis hiç çağrılmaz (denetim kaydını yalnız uyum ve denetçi görür).
+func TestRoleWithoutPermissionGets403(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+	tokens := auth.NewTokens(testSecret, time.Minute, time.Hour, clock.System{})
+
+	for _, role := range []auth.Role{auth.RoleCustomer, auth.RoleOperations, auth.RoleRiskAnalyst, auth.RoleSystem} {
+		token, _, err := tokens.IssueAccess(uuid.New(), role)
+		require.NoError(t, err)
+		rec := s.do(t, http.MethodGet, "/api/v1/audit-log", http.Header{"Authorization": {"Bearer " + token}})
+		require.Equal(t, http.StatusForbidden, rec.Code, role)
+		require.Equal(t, "FORBIDDEN", errorCode(t, rec))
+	}
+}
 
 // Korunan uçlar token olmadan ya da geçersiz token'la 401 döner; servis hiç çağrılmaz.
 func TestProtectedRoutesRequireToken(t *testing.T) {
@@ -55,6 +71,7 @@ func newTestServer(t *testing.T, checks []health.Check, extra func(chi.Router)) 
 		HealthChecks:   checks,
 		Tokens:         auth.NewTokens(testSecret, time.Minute, time.Hour, clock.System{}),
 		Auth:           auth.NewHandler(nil, false), // bu testler servis gerektiren uçlara ulaşmaz
+		Audit:          audit.NewHandler(nil),
 	})
 	if extra != nil {
 		extra(h.(chi.Router))

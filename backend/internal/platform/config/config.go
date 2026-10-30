@@ -55,6 +55,38 @@ func (c API) Validate() error {
 	return nil
 }
 
+// Worker, worker sürecinin (zamanlanmış işler ve iş kuyruğu) ayarlarıdır.
+type Worker struct {
+	// Yalnız sağlık ucu (/health) için; compose'da dışarı açılmaz.
+	HTTPAddr        string        `env:"HTTP_ADDR"        envDefault:":8080"`
+	LogLevel        slog.Level    `env:"LOG_LEVEL"        envDefault:"info"`
+	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s"`
+
+	DatabaseURL string `env:"DATABASE_URL,required,notEmpty"`
+	DBMaxConns  int32  `env:"DB_MAX_CONNS" envDefault:"10"`
+
+	Concurrency  int           `env:"WORKER_CONCURRENCY"   envDefault:"4"`
+	PollInterval time.Duration `env:"WORKER_POLL_INTERVAL" envDefault:"1s"`
+	JobLease     time.Duration `env:"WORKER_JOB_LEASE"     envDefault:"2m"`
+}
+
+// Validate etiketlerle ifade edilemeyen kuralları kontrol eder.
+func (c Worker) Validate() error {
+	switch {
+	case c.ShutdownTimeout <= 0:
+		return errors.New("SHUTDOWN_TIMEOUT must be positive")
+	case c.DBMaxConns < 1:
+		return errors.New("DB_MAX_CONNS must be at least 1")
+	case c.Concurrency < 1:
+		return errors.New("WORKER_CONCURRENCY must be at least 1")
+	case int64(c.Concurrency) >= int64(c.DBMaxConns):
+		return errors.New("DB_MAX_CONNS must be greater than WORKER_CONCURRENCY")
+	case c.PollInterval <= 0 || c.JobLease <= 0:
+		return errors.New("WORKER_POLL_INTERVAL and WORKER_JOB_LEASE must be positive")
+	}
+	return nil
+}
+
 // validator, Load'un okuduktan sonra çağırdığı isteğe bağlı kontrol arayüzüdür.
 type validator interface{ Validate() error }
 

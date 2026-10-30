@@ -53,3 +53,29 @@ POST {{baseUrl}}/api/v1/auth/login
 Content-Type: application/json
 
 {"email": "musteri@parakopru.test", "password": "{{password}}"}
+
+# ---------------------------------------------------------------------------
+# Denetim kaydı (izin: audit:read — yalnız uyum uzmanı ve denetçi)
+# ---------------------------------------------------------------------------
+
+### Uyum uzmanı olarak giriş
+# @name loginUyum
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "uyum@parakopru.test", "password": "{{password}}"}
+
+### Denetim kaydı — 200, en yeni önce, sayfalı
+GET {{baseUrl}}/api/v1/audit-log?limit=20
+Authorization: Bearer {{loginUyum.response.body.access_token}}
+
+### Müşteri olarak giriş
+# @name loginMusteri
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "musteri@parakopru.test", "password": "{{password}}"}
+
+### Yetki ihlali: müşteri denetim kaydını göremez — 403 FORBIDDEN
+GET {{baseUrl}}/api/v1/audit-log
+Authorization: Bearer {{loginMusteri.response.body.access_token}}

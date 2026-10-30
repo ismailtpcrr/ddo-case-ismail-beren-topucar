@@ -112,3 +112,34 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   - Access token iptal edilemez; en fazla 15 dk geçerli kalır. Çıkışta yalnız refresh token iptal edilir.
   - Aynı refresh token'la eşzamanlı iki yenileme isteğinde (ör. iki sekme) biri kazanır, diğeri iptal edilmiş token
     gördüğü için bütün oturumlar kapanır. Arayüz aynı anda tek yenileme isteği gönderecek şekilde yazılır (D1).
+
+## K-08 Idempotency-Key'in uygulanışı
+
+- **Bağlam:** proje.md §7 kritik POST'larda `Idempotency-Key` ile "aynı istek, aynı sonuç" istiyor. PLAN.md §5.2: anahtar iş
+  işlemiyle aynı transaction'da yazılır; eşzamanlı ikinci istek birincinin commit'ini bekler; farklı gövde → 422; iş kuralı
+  reddi de sonuçtur.
+- **Karar:**
+  - Servis, işlemi `idempotency.Run` içinde yapar. Anahtar satırı `INSERT … ON CONFLICT DO NOTHING` ile eklenir;
+    eşzamanlı ikinci istek PostgreSQL'in benzersizlik kilidinde bekler, ayrı bir kilit mekanizması gerekmez.
+  - Anahtar kullanıcıya özeldir (`PRIMARY KEY (user_id, key)`). İstek özeti = SHA-256(işlem adı + gövde).
+  - İş kuralı reddinde (4xx) işlemin yarım yazmaları bir savepoint'e geri alınır, ret kaydedilir ve commit edilir.
+  - Beklenmeyen hatada (5xx) hiçbir şey kaydedilmez; istemci aynı anahtarla güvenle yeniden dener.
+  - Kayıtlı sonuç dönerken yanıta `Idempotent-Replayed: true` başlığı eklenir.
+- **Değerlendirilen alternatifler:**
+  - HTTP middleware'inde yanıtı kaydetmek: anahtar iş transaction'ının dışında kalır. İşlem commit edilip yanıt kaydedilmeden
+    süreç çökerse tekrar istek işlemi ikinci kez yapar.
+  - Redis'te kilit + sonuç: ikinci bir sistem ve iki sistem arasında tutarlılık sorunu.
+- **Sonuçlar / ödünleşimler:** Anahtarlar süresiz saklanır (şartname bir saklama süresi istemiyor); büyük ölçekte eski
+  anahtarları silen bir iş gerekir.
+
+## K-09 İş kuyruğunda kira (lease) ve "en az bir kez" çalıştırma
+
+- **Bağlam:** PLAN.md §5.2: outbox ile `jobs` tablosu; worker işleri `SKIP LOCKED` ile alır. Worker herhangi bir anda çökebilir.
+- **Karar:** İş, tek bir `UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1)` ile "running" yapılır ve bir kira
+  (`locked_until`, varsayılan 2 dk) alır; handler transaction dışında çalışır. Kirası dolmuş "running" işler yeniden alınabilir.
+  Hata → artan bekleme (1, 2, 4 … sn, en fazla 5 dk); `Permanent` hata ya da deneme hakkı bitince "failed".
+  Sonuç yalnız iş hâlâ aynı denemeye aitse yazılır; geç kalan bir worker yenisinin sonucunu ezmez.
+- **Değerlendirilen alternatifler:** İşi baştan sona tek bir transaction içinde, satır kilidini tutarak çalıştırmak. Daha basit
+  ama dış servis çağrısı sürerken bir veritabanı bağlantısı ve kilit açık kalır; handler kendi transaction'larını açamaz.
+- **Sonuçlar / ödünleşimler:** İşler "en az bir kez" çalışır: worker işi bitirip sonucu yazamadan çökerse iş tekrar çalışır.
+  Bu yüzden handler'lar tekrar çalıştırılmaya dayanıklı yazılır (ör. dış bankaya hep aynı referansla gidilir).

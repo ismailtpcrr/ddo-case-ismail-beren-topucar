@@ -531,7 +531,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [x] A4 `feat(db)`: `TxManager` (yeniden denemeli), goose ile ilk migrasyonlar, iki DB rolü, `api` açılışında advisory lock ile migrasyon
 - [x] A5 `build`: Go ve frontend Dockerfile'ları, `healthcheck` binary'si, compose (her serviste healthcheck, tüm bağımlılıklar `service_healthy`, root olmayan kullanıcılar), boş frontend sayfası
 - [x] A6 `feat(auth)`: `users`, 6 rol, argon2id, JWT access + refresh çerezi, izin tablosu ve `Require` middleware, demo hesap seed'i
-- [ ] A7 `feat(platform)`: append-only `audit_log`, `idempotency_keys`, `jobs` kuyruğu + `worker` iskeleti
+- [x] A7 `feat(platform)`: append-only `audit_log`, `idempotency_keys`, `jobs` kuyruğu + `worker` iskeleti
 - [ ] A8 `test(verify)`: `cmd/verify` iskeleti + PASS/FAIL tablosu (health, yanlış parola, yetkisiz rol, yetki ihlali), `make verify`
 
 ### B — Para ve defter (T-1, F-1, F-2)

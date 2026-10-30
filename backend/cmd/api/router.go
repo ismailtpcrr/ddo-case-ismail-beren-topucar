@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
 	"parakopru/internal/platform/health"
 	"parakopru/internal/platform/httpx"
@@ -23,6 +24,7 @@ type routerDeps struct {
 	HealthChecks   []health.Check
 	Tokens         *auth.Tokens
 	Auth           *auth.Handler
+	Audit          *audit.Handler
 }
 
 // newRouter tüm HTTP uçlarını ve ortak middleware zincirini kurar.
@@ -59,6 +61,7 @@ func newRouter(d routerDeps) http.Handler {
 			r.Use(auth.Authenticate(d.Tokens))
 
 			r.With(auth.Require(auth.PermProfileRead)).Get("/me", d.Auth.Me)
+			r.With(auth.Require(auth.PermAuditRead)).Get("/audit-log", d.Audit.List)
 		})
 	})
 

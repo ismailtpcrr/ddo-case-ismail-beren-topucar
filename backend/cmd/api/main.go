@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"parakopru/internal/platform/audit"
 	"parakopru/internal/platform/auth"
 	"parakopru/internal/platform/clock"
 	"parakopru/internal/platform/config"
@@ -76,6 +77,7 @@ func run() error {
 		HealthChecks:   []health.Check{{Name: "database", Run: pool.Ping}},
 		Tokens:         tokens,
 		Auth:           auth.NewHandler(authSvc, cfg.CookieSecure),
+		Audit:          audit.NewHandler(audit.NewService(pool)),
 	})
 
 	srv := &http.Server{

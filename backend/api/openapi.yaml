@@ -86,6 +86,34 @@ paths:
               schema: { $ref: "#/components/schemas/User" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /api/v1/audit-log:
+    get:
+      summary: Denetim kaydı (en yeni önce, keyset sayfalı)
+      description: |
+        İzin: `audit:read` (uyum uzmanı, denetçi). Kayıtlar eklemeli-yalnızdır; değiştirilemez ve silinemez.
+        Her kayıt: kim (`actor_id`, `actor_role`), ne zaman (`at`), neyi (`action`, `entity`, `entity_id`),
+        eski ve yeni değer (`old_value`, `new_value`) ve isteğin kimliği (`request_id`).
+      tags: [Denetim]
+      parameters:
+        - { name: entity, in: query, schema: { type: string, maxLength: 100 }, description: "Ör. transfer" }
+        - { name: entity_id, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/AuditRecord" } }
+                  next_cursor: { type: string, nullable: true, description: "Son sayfada null" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /health:
     get:
       summary: Sağlık durumu (veritabanı bağlantısı dahil)
@@ -117,8 +145,46 @@ components:
     RequestID:
       description: İsteğin kimliği (loglarda `request_id`)
       schema: { type: string }
+    IdempotentReplayed:
+      description: "`true` ise yanıt, aynı Idempotency-Key ile daha önce yapılmış işlemin kayıtlı sonucudur"
+      schema: { type: string, enum: ["true"] }
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Önceki sayfanın `next_cursor` değeri
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Para hareketi yapan her POST'ta zorunludur (yoksa 400 `IDEMPOTENCY_KEY_REQUIRED`). Aynı anahtarla tekrar
+        gelen istek işlemi yeniden yapmaz, ilk sonucu döndürür. Aynı anahtar farklı bir istekle kullanılırsa
+        422 `IDEMPOTENCY_KEY_REUSED`. En fazla 255 karakter, boşluksuz görünür ASCII.
+      schema: { type: string, maxLength: 255 }
 
   schemas:
+    AuditRecord:
+      type: object
+      required: [id, at, actor_role, action, entity]
+      properties:
+        id: { type: string, format: uuid }
+        at: { type: string, format: date-time }
+        actor_id: { type: string, format: uuid, nullable: true, description: "Sistem süreçlerinde null" }
+        actor_role: { $ref: "#/components/schemas/Role" }
+        action: { type: string, example: transfer.approve }
+        entity: { type: string, example: transfer }
+        entity_id: { type: string, nullable: true }
+        old_value: { nullable: true, description: Değişiklikten önceki değer (JSON) }
+        new_value: { nullable: true, description: Değişiklikten sonraki değer (JSON) }
+        request_id: { type: string, nullable: true }
+
     Role:
       type: string
       enum: [CUSTOMER, OPERATIONS, RISK_ANALYST, COMPLIANCE, AUDITOR, SYSTEM]

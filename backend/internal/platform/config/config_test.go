@@ -94,3 +94,29 @@ func TestLoadReadsProcessEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ":7070", cfg.HTTPAddr)
 }
+
+func TestWorkerDefaultsAndValidation(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": "postgres://app:pw@db:5432/parakopru"}
+	cfg, err := config.LoadFrom[config.Worker](base)
+	require.NoError(t, err)
+	require.Equal(t, 4, cfg.Concurrency)
+	require.Equal(t, time.Second, cfg.PollInterval)
+	require.Equal(t, 2*time.Minute, cfg.JobLease)
+
+	_, err = config.LoadFrom[config.Worker](map[string]string{})
+	require.ErrorContains(t, err, "DATABASE_URL")
+
+	for name, extra := range map[string]map[string]string{
+		"sıfır eşzamanlılık":       {"WORKER_CONCURRENCY": "0"},
+		"bağlantı sayısı yetersiz": {"WORKER_CONCURRENCY": "10", "DB_MAX_CONNS": "10"},
+		"sıfır kira süresi":        {"WORKER_JOB_LEASE": "0s"},
+		"negatif bekleme aralığı":  {"WORKER_POLL_INTERVAL": "-1s"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			vars := maps.Clone(base)
+			maps.Copy(vars, extra)
+			_, err := config.LoadFrom[config.Worker](vars)
+			require.Error(t, err)
+		})
+	}
+}
