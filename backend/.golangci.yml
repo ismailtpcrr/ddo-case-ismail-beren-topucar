@@ -7,16 +7,32 @@ linters:
   enable:
     - bodyclose     # HTTP yanıt gövdesi kapatılmalı
     - errorlint     # hata karşılaştırması errors.Is / errors.As ile
+    - forbidigo     # para paketlerinde kayan nokta yasağı (aşağıda)
     - gosec         # temel güvenlik kontrolleri
     - noctx         # context'siz HTTP isteği / SQL sorgusu olmasın
     - rowserrcheck  # rows.Err() kontrol edilmeli
     - sqlclosecheck # rows / stmt kapatılmalı
     - unconvert     # gereksiz tip dönüşümü
+  settings:
+    forbidigo:
+      # proje.md §6-§7: para tutarlarında kayan nokta yasak. float32/64 tipi ve kayan noktalı
+      # decimal dönüşümleri (NewFromFloat, InexactFloat64 …) para paketlerinde kullanılamaz.
+      forbid:
+        - pattern: ^float(32|64)$
+          msg: "para paketlerinde kayan nokta yasak: int64 minor birim ya da decimal kullanın"
+        - pattern: ^decimal\.NewFromFloat(32)?$
+          msg: "decimal'e float'tan değil metinden ya da tam sayıdan dönüştürün"
+        - pattern: \.(Float64|InexactFloat64)$
+          msg: "decimal'den float'a dönüştürmeyin"
   exclusions:
     rules:
       # Testlerde, test yardımcılarında ve make verify aracında güvenlik uyarıları (ör. bilerek yanlış girilen test parolası) anlamsız.
       - path: (_test\.go|/dbtest/|internal/verify/)
         linters: [gosec]
+      # Kayan nokta yasağı yalnız para ile ilgili paketlerde geçerlidir (ör. risk modülündeki km/saat hesabı
+      # kayan nokta kullanabilir).
+      - path-except: internal/(money|account|ledger|transfer|card|fx|interest|recon)/
+        linters: [forbidigo]
 
 formatters:
   enable:

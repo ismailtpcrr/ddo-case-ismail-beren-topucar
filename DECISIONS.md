@@ -161,3 +161,27 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   - Uygulanmamış kimlikleri SKIP göstermek: tablo yeşil görünür ama sistemin eksik olduğunu gizler.
 - **Sonuçlar / ödünleşimler:** Bütün kimlikler uygulanana kadar `make verify` sıfırdan farklı kodla biter. Bu bilinçli bir
   tercih: tablo her an sistemin gerçek durumunu gösterir.
+
+## K-11 Para tutarları: int64 minor birim, ara hesapta decimal, banker's rounding
+
+*(PLAN.md §14 madde 6; B1 adımında uygulandı.)*
+
+- **Bağlam:** proje.md §6-§7: tutarlar tam sayı (kuruş) ya da `numeric` olmalı, kayan nokta yasak. T-4 banker's rounding ve
+  kuruş dağıtımı istiyor; kur ve faiz hesabı kesirli sonuç üretir.
+- **Karar:**
+  - Saklanan ve taşınan her tutar `money.Amount{Minor int64, Currency}`; veritabanında `bigint` (`*_minor`), API'de
+    `amount_minor` tam sayı + `currency`.
+  - Farklı para birimleri toplanamaz; int64 taşması hata döner.
+  - Faiz ve kur gibi ara hesaplar `shopspring/decimal` ile yapılır; sonuç `FromDecimal` ile banker's rounding
+    (yarımda çifte) kullanılarak kuruşa çevrilir.
+  - Metinden tutar okuma (ekstre satırları) katıdır: en fazla 2 ondalık basamak; üs, binlik ayırıcı ya da boşluk kabul
+    edilmez. Fazla basamak sessizce yuvarlanmaz, satır bozuk sayılır.
+  - Kayan nokta yasağı lint kuralıdır (`forbidigo`): para ile ilgili paketlerde (money, account, ledger, transfer, card,
+    fx, interest, recon) `float32/64` ve float ↔ decimal dönüşümleri derleme öncesi yakalanır.
+- **Değerlendirilen alternatifler:**
+  - Veritabanında `numeric(20,2)`, Go'da decimal: her toplamada decimal nesnesi gerekir ve yavaştır. Kuruş zaten tam sayı
+    olduğu için int64 yeterli ve hızlıdır.
+  - Yarımı yukarı yuvarlama (half-up): çok sayıda işlemde sapma hep aynı yönde birikir; banker's rounding bunu dengeler.
+  - Float yasağını bütün projeye uygulamak: risk modülündeki mesafe/hız hesabı (imkânsız seyahat) kayan nokta gerektirir.
+- **Sonuçlar / ödünleşimler:** int64 kuruş ±92 katrilyon TL'ye kadar yeter. Desteklenen üç para birimi de 2 basamaklıdır;
+  farklı basamaklı bir para birimi (ör. JPY) eklenirse basamak sayısı para birimine bağlanmalıdır (tek bir sabit değişir).

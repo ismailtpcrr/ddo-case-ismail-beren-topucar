@@ -119,6 +119,17 @@ Veritabanı testleri gerçek bir PostgreSQL 16 konteyneri açar (testcontainers)
 Her test paketi kendi konteynerini açar, migrasyonları uygular ve iş bitince kapatır.
 `cd backend && go test -short ./...` veritabanı testlerini atlayıp yalnız birim testlerini çalıştırır.
 
+## Para tipi ve yuvarlama
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Banker's rounding | `cd backend && go test -run 'TestRoundHalfEven' -v ./internal/money/` | `0.125 → 0.12`, `0.135 → 0.14`, `2.5 → 2`, `3.5 → 4`; negatiflerde de simetrik |
+| Farklı para birimleri karışmaz | `go test -run TestAddSubRequireSameCurrency ./internal/money/` | TRY + USD hata döner (`ErrCurrencyMismatch`) |
+| Taşma sessizce yanlış sonuç üretmez | `go test -run 'TestOverflow|TestPropertyAddNeverWrapsSilently' ./internal/money/` | int64 sınırında hata döner; rastgele her çiftte ya doğru sonuç ya hata |
+| Property testleri (rapid) | `go test -run TestProperty -v ./internal/money/` | Toplama değişmeli ve birleşmeli, `(a+b)-b = a`; metin ↔ tutar ve decimal ↔ tutar dönüşümleri kayıpsız; yuvarlama en fazla yarım kuruş sapar |
+| Fuzz (ekstre tutarı ayrıştırma) | `go test -run '^$' -fuzz FuzzParseAmount -fuzztime 30s ./internal/money/` | Panic yok; kabul edilen her metin aynı tutara geri döner |
+| Kayan nokta yasağı | `make lint` | Para paketlerinde `float32/64`, `decimal.NewFromFloat`, `.Float64()` kullanımı lint hatasıdır |
+
 ## Doğrulama kimlikleri (F-1 … F-8, T-1 … T-7)
 
 Her kimlik, ilgili özellik geliştirildiğinde bu tabloya ve `make verify`'a eklenecek.

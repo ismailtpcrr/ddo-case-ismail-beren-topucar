@@ -535,7 +535,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [x] A8 `test(verify)`: `cmd/verify` iskeleti + PASS/FAIL tablosu (health, yanlış parola, yetkisiz rol, yetki ihlali), `make verify`
 
 ### B — Para ve defter (T-1, F-1, F-2)
-- [ ] B1 `feat(money)`: `Amount`, para birimi, banker's rounding + birim/property testleri
+- [x] B1 `feat(money)`: `Amount`, para birimi, banker's rounding + birim/property testleri
 - [ ] B2 `feat(account)`: müşteriler, hesaplar (vadesiz/vadeli, TRY/USD/EUR), iç hesap planı, `account_balances`
 - [ ] B3 `feat(ledger)`: yevmiye + satırlar, borç = alacak (Go + DB), değişmezlik trigger'ları, özet güncelleme, sıralı kilit, ters kayıt
 - [ ] B4 `feat(transfer)`: iç transfer + Idempotency-Key, `/admin/invariants`
