@@ -20,6 +20,7 @@ import (
 	"parakopru/internal/platform/health"
 	"parakopru/internal/platform/ids"
 	"parakopru/internal/platform/observability"
+	"parakopru/migrations"
 )
 
 func main() {
@@ -41,11 +42,16 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Önce veritabanının hazır olmasını bekle, sonra şemayı güncelle. HTTP sunucusu (dolayısıyla /health)
+	// migrasyon bitmeden açılmaz; compose'daki bağımlı servisler eksik şemayla çalışmaya başlamaz.
 	pool, err := db.Connect(ctx, cfg.DatabaseURL, cfg.DBMaxConns)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
+	if err := db.Migrate(ctx, cfg.MigrationDatabaseURL, migrations.FS, log); err != nil {
+		return err
+	}
 
 	handler := newRouter(routerDeps{
 		Logger:         log,

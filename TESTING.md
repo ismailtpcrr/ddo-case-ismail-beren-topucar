@@ -36,6 +36,10 @@ Aynı istekler [requests.http](requests.http) dosyasında da var.
 | `make cover` | Test kapsamı özeti |
 | `make lint` | golangci-lint |
 
+Veritabanı testleri gerçek bir PostgreSQL 16 konteyneri açar (testcontainers); Docker çalışıyor olmalıdır.
+Her test paketi kendi konteynerini açar, migrasyonları uygular ve iş bitince kapatır.
+`cd backend && go test -short ./...` veritabanı testlerini atlayıp yalnız birim testlerini çalıştırır.
+
 ## Doğrulama kimlikleri (F-1 … F-8, T-1 … T-7)
 
 Her kimlik, ilgili özellik geliştirildiğinde bu tabloya ve `make verify`'a eklenecek.

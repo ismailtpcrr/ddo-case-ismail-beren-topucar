@@ -23,6 +23,8 @@ type API struct {
 	// Uygulama rolüyle bağlantı adresi (postgres://kullanıcı:parola@host:5432/db).
 	DatabaseURL string `env:"DATABASE_URL,required,notEmpty"`
 	DBMaxConns  int32  `env:"DB_MAX_CONNS" envDefault:"20"`
+	// Sahip rolle bağlantı adresi; yalnız açılıştaki migrasyon için kullanılır.
+	MigrationDatabaseURL string `env:"MIGRATION_DATABASE_URL,required,notEmpty"`
 }
 
 // Validate etiketlerle ifade edilemeyen kuralları kontrol eder.

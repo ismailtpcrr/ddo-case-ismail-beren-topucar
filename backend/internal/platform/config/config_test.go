@@ -12,7 +12,10 @@ import (
 )
 
 // required, API ayarlarının çalışması için şart olan asgari değişkenlerdir.
-var required = map[string]string{"DATABASE_URL": "postgres://app:pw@db:5432/parakopru"}
+var required = map[string]string{
+	"DATABASE_URL":           "postgres://app:pw@db:5432/parakopru",
+	"MIGRATION_DATABASE_URL": "postgres://owner:pw@db:5432/parakopru",
+}
 
 func with(extra map[string]string) map[string]string {
 	vars := maps.Clone(required)
@@ -46,12 +49,16 @@ func TestAPIOverrides(t *testing.T) {
 	require.Equal(t, int32(50), cfg.DBMaxConns)
 }
 
-func TestAPIRequiresDatabaseURL(t *testing.T) {
-	_, err := config.LoadFrom[config.API](map[string]string{})
-	require.ErrorContains(t, err, "DATABASE_URL")
+func TestAPIRequiresDatabaseURLs(t *testing.T) {
+	for _, key := range []string{"DATABASE_URL", "MIGRATION_DATABASE_URL"} {
+		missing := with(nil)
+		delete(missing, key)
+		_, err := config.LoadFrom[config.API](missing)
+		require.ErrorContains(t, err, key)
 
-	_, err = config.LoadFrom[config.API](map[string]string{"DATABASE_URL": ""})
-	require.ErrorContains(t, err, "DATABASE_URL")
+		_, err = config.LoadFrom[config.API](with(map[string]string{key: ""}))
+		require.ErrorContains(t, err, key)
+	}
 }
 
 func TestAPIRejectsInvalidValues(t *testing.T) {
@@ -71,7 +78,9 @@ func TestAPIRejectsInvalidValues(t *testing.T) {
 }
 
 func TestLoadReadsProcessEnvironment(t *testing.T) {
-	t.Setenv("DATABASE_URL", required["DATABASE_URL"])
+	for k, v := range required {
+		t.Setenv(k, v)
+	}
 	t.Setenv("HTTP_ADDR", ":7070")
 
 	cfg, err := config.Load[config.API]()

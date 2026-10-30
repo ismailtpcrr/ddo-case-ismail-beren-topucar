@@ -66,3 +66,22 @@ PLAN.md §14'teki listeden buraya taşınacaktır.
   çünkü doğrulayıcı zaten saf bir fonksiyon gibi davranıyor.
 - **Sonuçlar:** Veritabanı havuzu, saat, kimlik üreteci, dış servis istemcileri gibi durum ya da I/O taşıyan bağımlılıkların
   hepsi constructor ile verilir; kural onlar için eksiksiz geçerlidir.
+
+## K-06 Veritabanı rolleri: yetkiler bir grup rolüne verilir
+
+- **Bağlam:** PLAN.md §6 iki veritabanı rolü istiyor: migrasyonu çalıştıran sahip rol ve api/worker'ın kullandığı uygulama rolü
+  (defter ve denetim tablolarında yalnız `INSERT/SELECT`). Uygulama kullanıcısının adı ve parolası `.env`'den gelir;
+  migrasyon SQL dosyaları ise sabittir.
+- **Karar:**
+  - Yetkiler, giriş yapamayan `app_rw` grup rolüne migrasyonlarda verilir. Uygulama kullanıcısı (`APP_DB_USER`) bu grubun
+    üyesidir; PostgreSQL ilk açılışında `deploy/postgres/initdb/01-app-role.sh` tarafından oluşturulur.
+  - `ALTER DEFAULT PRIVILEGES`: sahip rolün oluşturduğu her yeni tabloda `app_rw` okuma/yazma yetkisi alır. Eklemeli-yalnız
+    tablolarda `UPDATE/DELETE` o tablonun kendi migrasyonunda geri alınır.
+  - Sahip rol, postgres imajının `POSTGRES_USER`'ıdır (konteyner içinde süper kullanıcı).
+- **Değerlendirilen alternatifler:**
+  - Yetkileri doğrudan kullanıcı adına vermek: migrasyonun kullanıcı adını ortam değişkeninden okuması gerekir
+    (goose ENVSUB); SQL'e dışarıdan metin girer.
+  - Tek rol: defter satırlarını değiştirme yasağı yalnız trigger'a kalır; iki ayrı güvence yerine tek güvence olur.
+- **Sonuçlar / ödünleşimler:** Uygulama rolü tablo oluşturamaz ve silemez; testle kanıtlı (`42501 insufficient_privilege`).
+  Sahip rolün süper kullanıcı olması demo ortamı içindir; WAL arşivi ve `pg_basebackup` (T-7) için gereken yetkileri de sağlar.
+  Gerçek bir ortamda migrasyon için süper kullanıcı olmayan ayrı bir sahip rol açılır.
