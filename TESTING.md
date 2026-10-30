@@ -204,6 +204,18 @@ make pitr-demo          # = sistemi ayağa kaldırır + ./scripts/dr/pitr-demo.s
 Son satır `PASS PITR: …`; çıkış kodu 0. Sonuç `.verify/pitr-result.txt` dosyasına da yazılır (`make verify` T-7 için okur). Betik canlı
 veritabanına yalnız geçici `dr_demo` tablosunu ekler ve siler. Arşivin durumu: `docker compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT * FROM pg_stat_archiver"`.
 
+## Faiz hesabı (T-4, saf fonksiyonlar)
+
+| Ne denenir | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| Gün tabanları ve artık yıl | `cd backend && go test -run 'TestDaysInYear|TestDailyGrossByBasis' -v ./internal/interest/` | ACT_360 → 360, ACT_365 → 365, ACT_ACT 29.02.2024 → 366 (2100 → 365); 100.000 TL %36: 360'ta günlük 100,00, 365'te 98,63…, artık yılda 98,36… |
+| Kuruş dağıtımı | `go test -run TestCentDistributionNeverLosesAPenny -v ./internal/interest/` | Günlük 0,33 kuruşluk faiz: 0, 1, 0 kuruş yazılır (günlük yuvarlasaydık 3 günde 0) |
+| Basit / bileşik | `go test -run TestCompoundGrowsFasterThanSimple -v ./internal/interest/` | 100.000 TL %42, 365 gün: basit tam 42.000,00; günlük bileşik 52.159,41 (= 100000 × ((1+0,42/365)^365 − 1)) |
+| Oran değişimi geçmişi bozmaz | `go test -run TestRateChangeDoesNotAffectPastDays -v ./internal/interest/` | İlk 10 gün %36 (günde 100 TL), sonra %72; ilk 10 günün toplamı değişmez |
+| Stopaj ve banker's rounding | `go test -run TestWithholding -v ./internal/interest/` | 100 TL brüt %15 → 15 vergi, 85 net; 16,5 kuruş → 16, 19,5 → 20 |
+| Property (rapid) | `go test -run TestPropertyCentDistributionAndWithholding -v ./internal/interest/` | Rastgele anapara/oran/stopaj/taban/gün dizisinde Σ günlük brüt = yuvarla(hassas toplam) ve her gün brüt = net + vergi |
+| Başlangıç oranları | Migrasyon 00014 | Vadeli TRY: bileşik ACT_365 %42; vadeli USD basit ACT_360 %3; vadeli EUR basit ACT_ACT %2; vadesiz %0; stopaj %15 (2026-01-01'den) |
+
 ## Kur yönetimi ve çok para birimli transfer (F-5)
 
 | Ne denenir | Nasıl denenir | Beklenen sonuç |

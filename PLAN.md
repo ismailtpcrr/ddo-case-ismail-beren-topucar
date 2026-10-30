@@ -563,7 +563,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [x] G1 `feat(fx)`: zaman geçerlilikli kurlar ve kur yönetimi (operasyon), çok para birimli transfer, TL eşdeğeri eşik + verify'a F-5
 
 ### H — Faiz ve gün sonu (T-4, F-6)
-- [ ] H1 `feat(interest)`: oran/stopaj tabloları, gün tabanları, basit/bileşik, kümülatif yuvarlama (saf fonksiyonlar + testler)
+- [x] H1 `feat(interest)`: oran/stopaj tabloları, gün tabanları, basit/bileşik, kümülatif yuvarlama (saf fonksiyonlar + testler)
 - [ ] H2 `feat(interest)`: kaldığı yerden devam eden gün sonu işi, çökme testi + verify'a F-6, T-4
 
 ### I — Mutabakat (T-5, F-8)

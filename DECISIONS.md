@@ -564,3 +564,24 @@ Docker imajı zaten `golang:1.27-alpine` (güncel yama) ile derlenir. Yerelde Go
 - **Sonuçlar / ödünleşimler:** Kart harcaması ve faiz hâlâ tek para biriminde. Aynı kayıtta iki FX pozisyon hesabı kilitlenir
   (her para biriminde sıcak satır, K-13'teki sınırlama). Dönüşüm sırasında kuruşa yuvarlama farkı FX pozisyon hesaplarında birikir (banker's rounding
   yanlılığı dengeler).
+
+## K-26 Faiz hesabı: saf fonksiyon, kümülatif yuvarlama, günlük stopaj, oran aralığı valid_from'dan
+
+*(PLAN.md §5.6; PLAN §14 madde 13'ün hesap kısmı; H1 adımı.)*
+
+- **Bağlam:** proje.md Görev 4: günlük basit/bileşik faiz, zaman geçerlilikli oranlar (oran değişince geçmiş etkilenmez),
+  365/360 ve artık yıl, stopaj, banker's rounding, kuruş dağıtımı (toplam daima tutmalı).
+- **Karar:**
+  - Hesap `internal/interest/calc.go`'da **saf fonksiyon** (`Accrue`, `Withhold`, `DaysInYear`): veritabanı ve saat bilmez;
+    tablo ve property testleriyle kanıtlanır. Gün sonu işi (H2) yalnız bunu çağırır ve sonucu yazar.
+  - Hassas faiz 16 ondalık basamakla tutulur; her gün yazılan = `round_half_even(kümülatif) − yazılan` (PLAN §5.6).
+  - Bileşikte esas = anapara + birikmiş **hassas** faiz (yuvarlanmış değil): sonuç kapalı formülle kuruşu kuruşuna aynı çıkar (testte 52.159,41).
+  - Stopaj **her günün yazılan brütüne** uygulanır (`vergi = yuvarla(brüt × oran)`, `net = brüt − vergi`): her gün brüt = net + vergi.
+  - Oran tablosunda yalnız `valid_from` var; bir oranın aralığı bir sonrakinin `valid_from`'una kadardır, bu yüzden aralıklar
+    tanım gereği çakışamaz ve PLAN'daki `EXCLUDE` kısıtı yerine `UNIQUE (ürün, para birimi, valid_from)` yeter. Oranlar eklemeli-yalnız.
+  - Başlangıç oranları migrasyonda: vadeli TRY bileşik ACT_365 %42, vadeli USD basit ACT_360 %3, vadeli EUR basit ACT_ACT %2
+    (üç gün tabanı da gerçek veride kullanılır), vadesiz %0; stopaj %15.
+- **Değerlendirilen alternatifler:** Her günü ayrı yuvarlamak (kuruşlar kaybolur, toplam tutmaz); `valid_to` sütunu + `EXCLUDE USING gist`
+  (iki sütunun tutarlı tutulması gerekir, btree_gist uzantısı; tek `valid_from` aynı güvenceyi daha basit verir); stopajı dönem sonunda toplu kesmek
+  (günlük kayıtta brüt = net + vergi her gün tutmaz).
+- **Sonuçlar / ödünleşimler:** Oran yönetimi için API yok (şartname istemiyor; oranlar migrasyonla eklenir). Eksi bakiyeye faiz işlemez (0).
