@@ -585,6 +585,7 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [ ] L3 `test(load)`: k6 senaryoları, `make load`, SLO tablosu
 - [ ] L4 `test(chaos)`: iki kaos betiği + sonuçları
 - [ ] L5 `test`: eksik testler — ≥ 60 test, kapsam ≥ %75
+- [ ] L6 `test`: soğuk başlangıç ölçümü — Docker önbelleği boşaltılıp (`docker builder prune -af`) `docker compose up --build --wait` süresi ölçülür; hedef ≤ 5 dk, sonuç README'ye
 
 ### M — Doküman
 - [ ] M1 `docs`: README (ad, kurulum, mimari, kararlar, frontend gerekçesi, demo hesaplar, DR, `EXPLAIN (ANALYZE)`, Doğrulama Soruları)
@@ -601,6 +602,21 @@ README.md  DECISIONS.md  RUNBOOK.md  TESTING.md  requests.http
 - [ ] Depo bağlantısı `proje.md`'deki ankete yüklenir
 
 Yetişmeyen adım README'de dürüstçe "yapılmadı, nedeni şu" diye yazılır.
+
+### README Doğrulama Soruları için geliştirme boyunca tutulan notlar
+
+Bu soruların cevabı sona bırakılırsa unutulur; ilgili şey yaşandığı anda buraya eklenir.
+
+1. **En zorlanılan görev ve elenen alternatifler:** (geliştirme sırasında doldurulacak)
+2. **Bilinen sınırlamalar:** (geliştirme sırasında doldurulacak)
+   - Dört göz onayı ve risk incelemesi beklerken para bloke edilmez; yetersiz bakiye yürütme anında kontrol edilir.
+3. **Dizin ölçümleri (dizinsiz / dizinli):** (ilgili adımda `EXPLAIN (ANALYZE)` ile ölçülüp yazılacak)
+4. **Reddedilen ya da düzeltilen çıktılar (önce → sonra):**
+   - Dört göz eşiği ilk taslakta `≥ 10.000 TL` yazılmıştı; şartname "10.000 TL **üzeri**" diyor → `> 10.000 TL`.
+   - İlk taslakta migrasyon, `service_completed_successfully` ile beklenen tek seferlik bir servisti; şartname tüm `depends_on`'larda
+     `service_healthy` istiyor → migrasyon `api` açılışına (advisory lock ile) taşındı.
+   - İlk taslakta dış banka simülatörüne şartnamede olmayan ek bir "%10 kesin red" oranı konmuştu; şartname "%20 hata, %10 çift cevap" diyor → kaldırıldı.
+5. **T-1 kanıtı:** B5'teki testin komutu ve çıktısı buraya kopyalanacak.
 
 ---
 
@@ -621,7 +637,9 @@ Türler: `feat` `fix` `test` `docs` `refactor` `perf` `build` `ci` `chore`. Bir 
 1. Derleniyor, `gofmt`/lint temiz, o ana kadarki tüm testler geçiyor.
 2. İlgili F/T kimliği varsa `cmd/verify`'a kontrolü eklendi.
 3. Alınan yeni karar varsa `DECISIONS.md`'ye, deneme yolu varsa `TESTING.md`'ye eklendi.
-4. Bu dosyadaki kutusu işaretlendi.
+4. Yeni uç nokta varsa `api/openapi.yaml`'a ve `requests.http`'ye eklendi (şartname "tüm uç noktalar" istiyor; sona bırakılmaz).
+5. Doğrulama Soruları için not çıktıysa 12. bölümdeki not listesine eklendi.
+6. Bu dosyadaki kutusu işaretlendi.
 
 ---
 
